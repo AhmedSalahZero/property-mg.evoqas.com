@@ -1,0 +1,270 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ══════════════════════════════════════════════════════════════════
+   VERO Property Management — Global Theme Variables
+   Dark Mode  : Deep Navy-Blue #0C1829 + Teal #1490A8 + Gold #BA7517
+   Light Mode : Soft Blue-White #F0F8FD + Navy #0C447C
+══════════════════════════════════════════════════════════════════ */
+
+:root {
+  /* ── Dark Mode (default) ── */
+  --fv-bg:            #0C1829;   /* page background   — Deep Navy-Blue    */
+  --fv-bg-header:     #0E1E34;   /* header/nav bg     — slightly lighter  */
+  --fv-bg-card:       #112240;   /* cards, panels     — blue-navy tint    */
+  --fv-bg-input:      #112240;   /* inputs, selects                       */
+  --fv-bg-modal:      #0E1E34;   /* modals                                */
+  --fv-bg-hover:      #163050;   /* card hover state                      */
+
+  --fv-border:        #21518B;   /* borders           — navy-blue         */
+  --fv-border-focus:  #1490A8;   /* focused border    — Teal              */
+
+  --fv-text-primary:  #F1F5F9;   /* main text         — near white        */
+  --fv-text-muted:    #5fd38f;   /* muted/secondary   — steel blue        */
+  --fv-text-label:    #ffffff;   /* labels            — lighter steel     */
+
+  --fv-blue:          #148aa8;   /* Teal (primary accent)                 */
+  --fv-blue-hover:    #0F6E7E;   /* Teal hover                            */
+  --fv-blue-dim:      rgba(20, 144, 168, 0.10);   /* tag / badge bg      */
+  --fv-blue-border:   rgba(20, 144, 168, 0.20);   /* tag / badge border  */
+
+  --fv-gold:          #FFC82D;   /* Gold accent                           */
+  --fv-gold-hover:    #b47521;   /* Gold hover                            */
+  --fv-gold-dim:      rgba(186, 117, 23, 0.12);   /* gold badge bg       */
+  --fv-gold-border:   rgba(186, 117, 23, 0.25);   /* gold badge border   */
+
+  --fv-shadow:        0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+/* ── Light Mode ─────────────────────────────────────────────────── */
+html.light {
+  --fv-bg:            #1e5679;   /* Soft Blue-White                       */
+  --fv-bg-header:     #1e5679;   /* white header                          */
+  --fv-bg-card:       #FFFFFF;   /* white cards                           */
+  --fv-bg-input:      #EBF5FB;   /* light teal-tinted input bg            */
+  --fv-bg-modal:      #FFFFFF;
+  --fv-bg-hover:      #E2F6FA;   /* teal-50 hover                         */
+
+  --fv-border:        #C2D9E8;   /* steel-blue-200                        */
+  --fv-border-focus:  #0C447C;   /* Navy focus                            */
+
+  --fv-text-primary:  #0C447C;   /* Navy — primary text in light mode     */
+  --fv-text-muted:    #5A7E9A;
+  --fv-text-label:    #3D6480;
+
+  --fv-blue:          #0C447C;   /* Navy as primary in light mode         */
+  --fv-blue-hover:    #093460;
+  --fv-blue-dim:      rgba(12, 68, 124, 0.08);
+  --fv-blue-border:   rgba(12, 68, 124, 0.20);
+
+  --fv-gold:          #BA7517;
+  --fv-gold-hover:    #9A6012;
+  --fv-gold-dim:      rgba(186, 117, 23, 0.10);
+  --fv-gold-border:   rgba(186, 117, 23, 0.22);
+
+  --fv-shadow:        0 4px 24px rgba(12, 68, 124, 0.10);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Global Base Styles
+══════════════════════════════════════════════════════════════════ */
+
+body {
+  background-color: var(--fv-bg);
+  color: var(--fv-text-primary);
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   ZAVERO Utility Classes  (use these in ALL .vue files)
+══════════════════════════════════════════════════════════════════ */
+
+/* Backgrounds */
+.fv-bg          { background-color: var(--fv-bg); }
+.fv-header-bg   { background-color: var(--fv-bg-header); }
+.fv-card-bg     { background-color: var(--fv-bg-card); }
+.fv-modal-bg    { background-color: var(--fv-bg-modal); }
+
+/* Borders */
+.fv-border      { border-color: var(--fv-border) !important; }
+
+/* Text */
+.fv-text-primary { color: var(--fv-text-primary); }
+.fv-text-muted   { color: var(--fv-text-muted); }
+.fv-text-label   { color: var(--fv-text-label); }
+
+/* ── Inputs & Selects ───────────────────────────────────────────── */
+.fv-input,
+.fv-select {
+  background-color: var(--fv-bg-input);
+  border: 1px solid var(--fv-border);
+  color: var(--fv-text-primary);
+  transition: border-color 0.15s ease;
+}
+.fv-input:focus,
+.fv-select:focus {
+  outline: none;
+  border-color: var(--fv-border-focus);
+  box-shadow: 0 0 0 3px rgba(20, 144, 168, 0.12);
+}
+.fv-input::placeholder { color: var(--fv-text-muted); }
+
+/* ── Cards ─────────────────────────────────────────────────────── */
+.fv-card {
+  background-color: var(--fv-bg-card);
+  border: 1px solid var(--fv-border);
+  border-radius: 0.875rem;
+  padding: 1.25rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.fv-card:hover {
+  border-color: var(--fv-blue-border);
+  background-color: var(--fv-bg-hover);
+}
+
+/* ── Company Cards (alias) ─────────────────────────────────────── */
+.fv-company-card {
+  background-color: var(--fv-bg-card);
+  border: 1px solid var(--fv-border);
+  border-radius: 0.875rem;
+  padding: 1.25rem;
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+.fv-company-card:hover {
+  border-color: var(--fv-blue-border);
+  background-color: var(--fv-bg-hover);
+}
+
+/* ── Avatar ────────────────────────────────────────────────────── */
+.fv-avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+  background: linear-gradient(135deg, #0C447C, #1490A8);
+  border-radius: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: white;
+  letter-spacing: 0.05em;
+  flex-shrink: 0;
+}
+
+/* ── Badges ────────────────────────────────────────────────────── */
+.fv-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 0.2rem 0.6rem;
+  border-radius: 9999px;
+}
+.fv-badge-active   { background: rgba(16,185,129,0.12); color: #34d399; border: 1px solid rgba(16,185,129,0.25); }
+.fv-badge-inactive { background: rgba(100,116,139,0.12); color: #64748b; border: 1px solid rgba(100,116,139,0.2); }
+
+/* ── Tags ──────────────────────────────────────────────────────── */
+.fv-tag {
+  font-size: 0.65rem;
+  font-weight: 600;
+  background: var(--fv-blue-dim);
+  color: #48C4D8;
+  border: 1px solid var(--fv-blue-border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.35rem;
+}
+.fv-tag-more {
+  background: rgba(100,116,139,0.1);
+  color: #64748b;
+  border-color: rgba(100,116,139,0.2);
+}
+
+/* ── Gold Tags ─────────────────────────────────────────────────── */
+.fv-tag-gold {
+  font-size: 0.65rem;
+  font-weight: 600;
+  background: var(--fv-gold-dim);
+  color: #FAC775;
+  border: 1px solid var(--fv-gold-border);
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.35rem;
+}
+
+/* ── Meta Items ────────────────────────────────────────────────── */
+.fv-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.7rem;
+  color: var(--fv-text-muted);
+}
+
+/* ── Action Buttons ────────────────────────────────────────────── */
+.fv-action-btn {
+  width: 1.875rem;
+  height: 1.875rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.45rem;
+  color: var(--fv-text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+.fv-action-btn:hover {
+  color: #48C4D8;
+  background: rgba(20,144,168,0.08);
+  border-color: rgba(20,144,168,0.2);
+}
+.fv-action-btn-danger:hover {
+  color: #f87171;
+  background: rgba(239,68,68,0.08);
+  border-color: rgba(239,68,68,0.2);
+}
+.fv-action-btn-settings:hover {
+  color: #FAC775;
+  background: rgba(186,117,23,0.08);
+  border-color: rgba(186,117,23,0.2);
+}
+
+/* ── Secondary Button ──────────────────────────────────────────── */
+.fv-btn-secondary {
+  background-color: var(--fv-bg-card);
+  border: 1px solid var(--fv-border);
+  color: var(--fv-text-label);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.fv-btn-secondary:hover {
+  border-color: var(--fv-blue);
+  color: #48C4D8;
+}
+
+/* ── Gold Button ───────────────────────────────────────────────── */
+.fv-btn-gold {
+  background-color: #096e2b;
+  border: 1px solid var(--fv-gold-border);
+  color: #ffffff;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.fv-btn-gold:hover {
+  background-color: var(--fv-gold-hover);
+}
+
+/* ── Modals ────────────────────────────────────────────────────── */
+.fv-modal {
+  background-color: var(--fv-bg-modal);
+  border: 1px solid var(--fv-border);
+  box-shadow: var(--fv-shadow);
+}
+
+/* ── Modal Transition ──────────────────────────────────────────── */
+.modal-enter-active, .modal-leave-active { transition: opacity 0.2s ease; }
+.modal-enter-from,   .modal-leave-to     { opacity: 0; }
+
+/* ── Dividers ──────────────────────────────────────────────────── */
+.fv-divider { border-color: var(--fv-border); }

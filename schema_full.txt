@@ -1,0 +1,565 @@
+
+=== alerts ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  user_id  |  bigint unsigned  |  NULL
+  type  |  enum('missed_revenue','late_report','low_margin','kpi_threshold','contract_expiry','task_overdue','other')  |  NOT NULL
+  message  |  text  |  NOT NULL
+  is_read  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== cache ===
+  key  |  varchar(255)  |  NOT NULL
+  value  |  mediumtext  |  NOT NULL
+  expiration  |  int  |  NOT NULL
+
+=== cache_locks ===
+  key  |  varchar(255)  |  NOT NULL
+  owner  |  varchar(255)  |  NOT NULL
+  expiration  |  int  |  NOT NULL
+
+=== companies ===
+  id  |  bigint unsigned  |  NOT NULL
+  name  |  varchar(255)  |  NOT NULL
+  trade_name  |  varchar(255)  |  NULL
+  logo  |  varchar(255)  |  NULL
+  description  |  text  |  NULL
+  notes  |  text  |  NULL
+  parent_id  |  bigint unsigned  |  NULL
+  legal_structure  |  varchar(255)  |  NULL
+  established_date  |  date  |  NULL
+  established_year  |  int  |  NULL
+  registration_number  |  varchar(255)  |  NULL
+  tax_id  |  varchar(255)  |  NULL
+  address  |  varchar(255)  |  NULL
+  city  |  varchar(255)  |  NULL
+  country  |  varchar(255)  |  NOT NULL DEFAULT 'Egypt'
+  phone  |  varchar(255)  |  NULL
+  email  |  varchar(255)  |  NULL
+  website  |  varchar(255)  |  NULL
+  currency  |  varchar(255)  |  NOT NULL DEFAULT 'EGP'
+  fiscal_year_start  |  enum('01','02','03','04','05','06','07','08','09','10','11','12')  |  NOT NULL DEFAULT '01'
+  tax_type  |  enum('corporate_income_tax','zakat')  |  NOT NULL DEFAULT 'corporate_income_tax'
+  enabled_modules  |  json  |  NULL
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+  deleted_at  |  timestamp  |  NULL
+
+=== customers ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  customer_name  |  varchar(255)  |  NOT NULL
+  business_sector  |  varchar(150)  |  NULL
+  tenant_nature  |  enum('individual','corporate')  |  NULL
+  is_related_party  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  source  |  enum('manual','imported')  |  NOT NULL DEFAULT 'manual'
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== expense_categories ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  category_name  |  varchar(255)  |  NOT NULL
+  cost_center  |  enum('cost_of_service','opex','sales_marketing','admin_general')  |  NOT NULL
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== expense_items ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  expense_category_id  |  bigint unsigned  |  NOT NULL
+  item_name  |  varchar(255)  |  NOT NULL
+  coa_code  |  varchar(100)  |  NULL
+  is_employee_expense  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== failed_jobs ===
+  id  |  bigint unsigned  |  NOT NULL
+  uuid  |  varchar(255)  |  NOT NULL
+  connection  |  text  |  NOT NULL
+  queue  |  text  |  NOT NULL
+  payload  |  longtext  |  NOT NULL
+  exception  |  longtext  |  NOT NULL
+  failed_at  |  timestamp  |  NOT NULL DEFAULT 'CURRENT_TIMESTAMP'
+
+=== fixed_asset_settings ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  asset_name  |  varchar(255)  |  NOT NULL
+  asset_type  |  enum('general','employee')  |  NOT NULL DEFAULT 'general'
+  is_employee_asset  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== job_batches ===
+  id  |  varchar(255)  |  NOT NULL
+  name  |  varchar(255)  |  NOT NULL
+  total_jobs  |  int  |  NOT NULL
+  pending_jobs  |  int  |  NOT NULL
+  failed_jobs  |  int  |  NOT NULL
+  failed_job_ids  |  longtext  |  NOT NULL
+  options  |  mediumtext  |  NULL
+  cancelled_at  |  int  |  NULL
+  created_at  |  int  |  NOT NULL
+  finished_at  |  int  |  NULL
+
+=== jobs ===
+  id  |  bigint unsigned  |  NOT NULL
+  queue  |  varchar(255)  |  NOT NULL
+  payload  |  longtext  |  NOT NULL
+  attempts  |  tinyint unsigned  |  NOT NULL
+  reserved_at  |  int unsigned  |  NULL
+  available_at  |  int unsigned  |  NOT NULL
+  created_at  |  int unsigned  |  NOT NULL
+
+=== keep_or_sell_analyses ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  created_by  |  bigint unsigned  |  NULL
+  property_id  |  bigint unsigned  |  NOT NULL
+  property_unit_id  |  bigint unsigned  |  NULL
+  snapshot_label  |  varchar(100)  |  NULL
+  market_value  |  decimal(18,2)  |  NULL
+  selling_costs_pct  |  decimal(5,2)  |  NOT NULL DEFAULT '0.00'
+  net_sale_proceeds  |  decimal(18,2)  |  NULL
+  holding_years  |  smallint unsigned  |  NOT NULL DEFAULT '5'
+  rent_growth_rate_pct  |  decimal(5,2)  |  NOT NULL DEFAULT '0.00'
+  other_opex_pct  |  decimal(5,2)  |  NOT NULL DEFAULT '0.00'
+  corporate_tax_rate_pct  |  decimal(5,2)  |  NOT NULL DEFAULT '0.00'
+  discount_rate_pct  |  decimal(5,2)  |  NOT NULL DEFAULT '10.00'
+  exit_cap_rate_pct  |  decimal(5,2)  |  NOT NULL DEFAULT '7.00'
+  npv_hold  |  decimal(18,2)  |  NULL
+  irr_hold  |  decimal(8,4)  |  NULL
+  terminal_value  |  decimal(18,2)  |  NULL
+  auto_recommendation  |  varchar(20)  |  NULL
+  auto_flags  |  json  |  NULL
+  annual_cashflows  |  json  |  NULL
+  analyst_recommendation  |  text  |  NULL
+  share_token  |  varchar(64)  |  NULL
+  share_token_created_at  |  timestamp  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== manpower_departments ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  department_name  |  varchar(255)  |  NOT NULL
+  cost_center  |  enum('cost_of_service','opex','sales_marketing','admin_general')  |  NOT NULL
+  business_unit_name  |  varchar(255)  |  NULL
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== manpower_titles ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  manpower_department_id  |  bigint unsigned  |  NULL
+  title_name  |  varchar(255)  |  NOT NULL
+  cost_center  |  enum('cost_of_service','opex','sales_marketing','admin_general')  |  NOT NULL
+  is_branch_title  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== migrations ===
+  id  |  int unsigned  |  NOT NULL
+  migration  |  varchar(255)  |  NOT NULL
+  batch  |  int  |  NOT NULL
+
+=== model_has_permissions ===
+  permission_id  |  bigint unsigned  |  NOT NULL
+  model_type  |  varchar(255)  |  NOT NULL
+  model_id  |  bigint unsigned  |  NOT NULL
+
+=== model_has_roles ===
+  role_id  |  bigint unsigned  |  NOT NULL
+  model_type  |  varchar(255)  |  NOT NULL
+  model_id  |  bigint unsigned  |  NOT NULL
+
+=== password_reset_tokens ===
+  email  |  varchar(255)  |  NOT NULL
+  token  |  varchar(255)  |  NOT NULL
+  created_at  |  timestamp  |  NULL
+
+=== permissions ===
+  id  |  bigint unsigned  |  NOT NULL
+  name  |  varchar(255)  |  NOT NULL
+  guard_name  |  varchar(255)  |  NOT NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== project_expenses ===
+  id  |  bigint unsigned  |  NOT NULL
+  project_id  |  bigint unsigned  |  NOT NULL
+  created_by  |  bigint unsigned  |  NOT NULL
+  category  |  enum('consultant','freelancer','legal','accounting','software','saas_subscription','hardware','purchase','raw_materials','travel','accommodation','marketing','training','government_fees','bank_charges','insurance','maintenance','logistics','other')  |  NOT NULL DEFAULT 'other'
+  custom_category  |  varchar(255)  |  NULL
+  description  |  varchar(255)  |  NOT NULL
+  amount  |  decimal(15,2)  |  NOT NULL
+  expense_date  |  date  |  NOT NULL
+  receipt_path  |  varchar(255)  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== project_task_assignees ===
+  id  |  bigint unsigned  |  NOT NULL
+  project_task_id  |  bigint unsigned  |  NOT NULL
+  user_id  |  bigint unsigned  |  NOT NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== project_task_logs ===
+  id  |  bigint unsigned  |  NOT NULL
+  project_task_id  |  bigint unsigned  |  NOT NULL
+  user_id  |  bigint unsigned  |  NOT NULL
+  log_date  |  date  |  NOT NULL
+  hours  |  decimal(6,2)  |  NOT NULL DEFAULT '0.00'
+  notes  |  text  |  NULL
+  progress_pct  |  int  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== project_tasks ===
+  id  |  bigint unsigned  |  NOT NULL
+  project_id  |  bigint unsigned  |  NOT NULL
+  created_by  |  bigint unsigned  |  NOT NULL
+  depends_on_task_id  |  bigint unsigned  |  NULL
+  name  |  varchar(255)  |  NOT NULL
+  description  |  text  |  NULL
+  status  |  enum('not_started','in_progress','completed','blocked')  |  NOT NULL DEFAULT 'not_started'
+  priority  |  enum('low','medium','high')  |  NOT NULL DEFAULT 'medium'
+  order  |  int  |  NOT NULL DEFAULT '0'
+  estimated_days  |  int  |  NULL
+  start_date  |  date  |  NULL
+  due_date  |  date  |  NULL
+  progress_pct  |  int  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== projects ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  created_by  |  bigint unsigned  |  NOT NULL
+  name  |  varchar(255)  |  NOT NULL
+  description  |  text  |  NULL
+  phase  |  varchar(255)  |  NULL
+  status  |  enum('not_started','in_progress','on_hold','completed','cancelled')  |  NOT NULL DEFAULT 'not_started'
+  start_date  |  date  |  NULL
+  end_date  |  date  |  NULL
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'USD'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== properties ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  nature  |  enum('unit','building','land','complex')  |  NOT NULL
+  property_name  |  varchar(255)  |  NOT NULL
+  property_code  |  varchar(255)  |  NULL
+  ownership  |  enum('fully_owned','installments','usufruct','managed')  |  NOT NULL
+  country  |  varchar(255)  |  NOT NULL DEFAULT 'Egypt'
+  governorate  |  varchar(255)  |  NULL
+  province  |  varchar(255)  |  NULL
+  location  |  varchar(255)  |  NULL
+  property_category_id  |  bigint unsigned  |  NULL
+  property_type_id  |  bigint unsigned  |  NULL
+  area  |  decimal(15,4)  |  NULL
+  unit_of_measurement  |  varchar(255)  |  NULL
+  acquisition_cost  |  decimal(18,2)  |  NULL
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  acquisition_date  |  varchar(7)  |  NULL
+  book_value  |  decimal(18,2)  |  NULL
+  accumulated_depreciation  |  decimal(18,2)  |  NULL
+  monthly_depreciation  |  decimal(18,2)  |  NULL
+  depreciation_duration_months  |  smallint unsigned  |  NULL
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  sort_order  |  int unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+  deleted_at  |  timestamp  |  NULL
+
+=== property_categories ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  category_name  |  varchar(255)  |  NOT NULL
+  is_system  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== property_expense_payments ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_expense_id  |  bigint unsigned  |  NOT NULL
+  payment_date  |  date  |  NOT NULL
+  amount  |  decimal(15,2)  |  NOT NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== property_expenses ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_id  |  bigint unsigned  |  NOT NULL
+  expense_category_id  |  bigint unsigned  |  NOT NULL
+  expense_item_id  |  bigint unsigned  |  NOT NULL
+  expense_date  |  date  |  NOT NULL
+  expense_amount  |  decimal(15,2)  |  NOT NULL
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  fx_rate  |  decimal(12,6)  |  NULL
+  notes  |  text  |  NULL
+  status  |  enum('unpaid','partially_paid','fully_paid')  |  NOT NULL DEFAULT 'unpaid'
+  created_by  |  bigint unsigned  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== property_installment_dues ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_id  |  bigint unsigned  |  NOT NULL
+  plan_id  |  bigint unsigned  |  NOT NULL
+  due_type  |  enum('signing','reservation','installment','annual','delivery','maintenance','variable')  |  NOT NULL DEFAULT 'installment'
+  due_date  |  date  |  NOT NULL
+  amount  |  decimal(15,2)  |  NOT NULL DEFAULT '0.00'
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  status  |  enum('pending','paid','overdue')  |  NOT NULL DEFAULT 'pending'
+  paid_date  |  date  |  NULL
+  notes  |  text  |  NULL
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== property_installment_plans ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_id  |  bigint unsigned  |  NOT NULL
+  installment_type  |  enum('regular','variable')  |  NOT NULL DEFAULT 'regular'
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  delivery_date  |  varchar(7)  |  NULL
+  ready_to_use_date  |  varchar(7)  |  NULL
+  signing_amount  |  decimal(15,2)  |  NULL
+  signing_date  |  varchar(7)  |  NULL
+  reservation_amount  |  decimal(15,2)  |  NULL
+  reservation_date  |  varchar(7)  |  NULL
+  installment_rows  |  json  |  NULL
+  has_annual  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  annual_start_date  |  varchar(7)  |  NULL
+  annual_amount  |  decimal(15,2)  |  NULL
+  annual_count  |  smallint unsigned  |  NULL
+  has_delivery  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  delivery_start_date  |  varchar(7)  |  NULL
+  delivery_amount  |  decimal(15,2)  |  NULL
+  delivery_count  |  smallint unsigned  |  NULL
+  delivery_interval  |  enum('monthly','quarterly','semi_annually')  |  NULL
+  has_maintenance  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  maintenance_start_date  |  varchar(7)  |  NULL
+  maintenance_amount  |  decimal(15,2)  |  NULL
+  maintenance_count  |  smallint unsigned  |  NULL
+  maintenance_interval  |  enum('monthly','quarterly','semi_annually')  |  NULL
+  created_by  |  bigint unsigned  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== property_market_values ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_id  |  bigint unsigned  |  NULL
+  property_unit_id  |  bigint unsigned  |  NULL
+  market_value  |  decimal(18,2)  |  NOT NULL
+  value_date  |  varchar(7)  |  NOT NULL
+  notes  |  text  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== property_types ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_category_id  |  bigint unsigned  |  NOT NULL
+  type_name  |  varchar(255)  |  NOT NULL
+  sort_order  |  smallint unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== property_units ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_id  |  bigint unsigned  |  NOT NULL
+  slot_type  |  enum('built_unit','land_slot')  |  NOT NULL DEFAULT 'built_unit'
+  unit_name  |  varchar(255)  |  NOT NULL
+  unit_code  |  varchar(255)  |  NULL
+  ownership  |  enum('fully_owned','installments','usufruct','managed')  |  NULL
+  location  |  varchar(255)  |  NULL
+  property_category_id  |  bigint unsigned  |  NULL
+  property_type_id  |  bigint unsigned  |  NULL
+  area  |  decimal(15,4)  |  NULL
+  unit_of_measurement  |  varchar(255)  |  NULL
+  acquisition_cost  |  decimal(18,2)  |  NULL
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  acquisition_date  |  varchar(7)  |  NULL
+  book_value  |  decimal(18,2)  |  NULL
+  accumulated_depreciation  |  decimal(18,2)  |  NULL
+  monthly_depreciation  |  decimal(18,2)  |  NULL
+  depreciation_duration_months  |  smallint unsigned  |  NULL
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  sort_order  |  int unsigned  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+  deleted_at  |  timestamp  |  NULL
+
+=== rent_collections ===
+  id  |  bigint unsigned  |  NOT NULL
+  rent_contract_id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  collection_date  |  date  |  NOT NULL
+  period_from  |  date  |  NOT NULL
+  period_to  |  date  |  NOT NULL
+  monthly_rent_basis  |  decimal(15,2)  |  NOT NULL
+  collection_amount  |  decimal(15,2)  |  NOT NULL
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  status  |  enum('pending','collected','overdue')  |  NOT NULL DEFAULT 'pending'
+  collected_date  |  date  |  NULL
+  notes  |  text  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== rent_contracts ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  property_id  |  bigint unsigned  |  NOT NULL
+  property_unit_id  |  bigint unsigned  |  NULL
+  revenue_type  |  enum('direct_rent','management_fee')  |  NOT NULL DEFAULT 'direct_rent'
+  management_fee_rate  |  decimal(5,2)  |  NULL
+  tenant_nature  |  enum('individual','corporate')  |  NOT NULL
+  customer_id  |  bigint unsigned  |  NOT NULL
+  start_date  |  date  |  NOT NULL
+  end_date  |  date  |  NOT NULL
+  contract_currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  monthly_rent_amount  |  decimal(15,2)  |  NOT NULL
+  variable_revenue_pct  |  decimal(5,2)  |  NULL
+  min_monthly_rent  |  decimal(15,2)  |  NULL
+  collection_currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  collection_interval_months  |  tinyint unsigned  |  NOT NULL DEFAULT '1'
+  insurance_months  |  tinyint unsigned  |  NOT NULL DEFAULT '0'
+  insurance_amount  |  decimal(15,2)  |  NOT NULL DEFAULT '0.00'
+  annual_increase_rate  |  decimal(5,2)  |  NOT NULL DEFAULT '0.00'
+  renewed_from_contract_id  |  bigint unsigned  |  NULL
+  status  |  enum('running','expired','terminated')  |  NOT NULL DEFAULT 'running'
+  terminated_date  |  date  |  NULL
+  termination_notes  |  text  |  NULL
+  created_by  |  bigint unsigned  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== rent_revenues ===
+  id  |  bigint unsigned  |  NOT NULL
+  rent_contract_id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  revenue_date  |  date  |  NOT NULL
+  period_label  |  varchar(10)  |  NOT NULL
+  monthly_rent  |  decimal(15,2)  |  NOT NULL
+  revenue_amount  |  decimal(15,2)  |  NOT NULL
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'EGP'
+  year_number  |  smallint unsigned  |  NOT NULL DEFAULT '1'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== role_has_permissions ===
+  permission_id  |  bigint unsigned  |  NOT NULL
+  role_id  |  bigint unsigned  |  NOT NULL
+
+=== roles ===
+  id  |  bigint unsigned  |  NOT NULL
+  name  |  varchar(255)  |  NOT NULL
+  guard_name  |  varchar(255)  |  NOT NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== sessions ===
+  id  |  varchar(255)  |  NOT NULL
+  user_id  |  bigint unsigned  |  NULL
+  ip_address  |  varchar(45)  |  NULL
+  user_agent  |  text  |  NULL
+  payload  |  longtext  |  NOT NULL
+  last_activity  |  int  |  NOT NULL
+
+=== statistica_entries ===
+  id  |  bigint unsigned  |  NOT NULL
+  series_id  |  bigint unsigned  |  NOT NULL
+  entry_date  |  date  |  NOT NULL
+  value  |  decimal(20,6)  |  NOT NULL
+  notes  |  varchar(255)  |  NULL
+  created_by  |  bigint unsigned  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== statistica_series ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  name  |  varchar(255)  |  NOT NULL
+  slug  |  varchar(255)  |  NULL
+  category  |  varchar(255)  |  NOT NULL
+  unit  |  varchar(255)  |  NOT NULL DEFAULT ''
+  frequency  |  enum('daily','weekly','monthly','quarterly')  |  NOT NULL DEFAULT 'daily'
+  color  |  varchar(255)  |  NOT NULL DEFAULT '#3b82f6'
+  description  |  text  |  NULL
+  source  |  varchar(255)  |  NULL
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  sort_order  |  int  |  NOT NULL DEFAULT '0'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== user_cost_rates ===
+  id  |  bigint unsigned  |  NOT NULL
+  user_id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NOT NULL
+  daily_rate  |  decimal(10,2)  |  NULL
+  hourly_rate  |  decimal(10,2)  |  NULL
+  currency  |  varchar(10)  |  NOT NULL DEFAULT 'USD'
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== user_tasks ===
+  id  |  bigint unsigned  |  NOT NULL
+  user_id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NULL
+  title  |  varchar(255)  |  NOT NULL
+  description  |  text  |  NULL
+  priority  |  enum('low','medium','high')  |  NOT NULL DEFAULT 'medium'
+  status  |  enum('not_started','in_progress','completed','cancelled')  |  NOT NULL DEFAULT 'not_started'
+  expected_start_date  |  date  |  NULL
+  expected_duration_days  |  smallint unsigned  |  NULL
+  expected_end_date  |  date  |  NULL
+  actual_start_date  |  date  |  NULL
+  actual_duration_days  |  smallint unsigned  |  NULL
+  actual_end_date  |  date  |  NULL
+  reminder_enabled  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  completion_notes  |  text  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
+
+=== users ===
+  id  |  bigint unsigned  |  NOT NULL
+  company_id  |  bigint unsigned  |  NULL
+  is_super_admin  |  tinyint(1)  |  NOT NULL DEFAULT '0'
+  role  |  enum('company_admin','manager','sales_manager','analyst','viewer')  |  NULL
+  is_active  |  tinyint(1)  |  NOT NULL DEFAULT '1'
+  name  |  varchar(255)  |  NOT NULL
+  email  |  varchar(255)  |  NOT NULL
+  phone  |  varchar(255)  |  NULL
+  job_title  |  varchar(255)  |  NULL
+  avatar  |  varchar(255)  |  NULL
+  theme  |  varchar(255)  |  NOT NULL DEFAULT 'dark'
+  email_verified_at  |  timestamp  |  NULL
+  password  |  varchar(255)  |  NOT NULL
+  remember_token  |  varchar(100)  |  NULL
+  created_at  |  timestamp  |  NULL
+  updated_at  |  timestamp  |  NULL
