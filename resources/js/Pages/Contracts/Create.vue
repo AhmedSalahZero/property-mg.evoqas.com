@@ -197,15 +197,42 @@
                 </div>
                 <p class="fv-text-muted text-xs mt-1">Rent Basis × Insurance Months</p>
               </div>
-              <div>
-                <label class="fv-text-label text-xs font-semibold uppercase tracking-wider block mb-1">Annual Increase Rate (%)</label>
-                <input type="number" v-model="form.annual_increase_rate"
-                  min="0" max="100" step="0.01"
+            </div>
+          </div>
+
+          <!-- Annual Increase Schedule -->
+          <div class="fv-card">
+            <h2 class="text-sm font-bold fv-text-label uppercase tracking-wider mb-4">Increase Rate Per Year</h2>
+            <p class="fv-text-muted text-xs mb-3">
+              Starts from contract year 2. Increase is applied from the day after each anniversary.
+            </p>
+
+            <div v-if="annualIncreaseYears.length === 0"
+              class="rounded-lg px-3 py-2 text-sm fv-text-muted"
+              style="background:var(--fv-bg-input);border:1px solid var(--fv-border)">
+              No increase years yet. Set contract start and end dates first.
+            </div>
+
+            <div v-else class="space-y-2">
+              <div class="grid grid-cols-2 gap-3 px-1">
+                <div class="fv-text-label text-xs font-semibold uppercase tracking-wider">Year</div>
+                <div class="fv-text-label text-xs font-semibold uppercase tracking-wider">Increase Rate (%)</div>
+              </div>
+
+              <div v-for="row in form.annual_increase_schedule" :key="row.year" class="grid grid-cols-2 gap-3 items-center">
+                <div class="fv-input rounded-lg px-3 py-2 text-sm fv-text-muted"
+                  style="background:var(--fv-bg-input);border:1px solid var(--fv-border)">
+                  {{ row.year }}
+                </div>
+                <input
+                  type="number"
+                  v-model.number="row.rate"
+                  min="0"
+                  max="100"
+                  step="0.01"
                   class="fv-input rounded-lg px-3 py-2 text-sm w-full"
-                  placeholder="0"/>
-                <p v-if="form.start_date && form.annual_increase_rate > 0" class="fv-text-muted text-xs mt-1">
-                  First increase applies from <strong class="fv-text-primary">{{ firstIncreaseDate }}</strong>
-                </p>
+                  placeholder="0"
+                />
               </div>
             </div>
           </div>
@@ -265,7 +292,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useForm } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
@@ -287,6 +314,12 @@ const revenueTypes = [
 ]
 
 // Initialize form with existing contract data when editing
+const initialIncreaseSchedule =
+  props.contract?.annual_increase_schedule ??
+  props.renewedFrom?.annual_increase_schedule ??
+  []
+const legacyIncreaseRate = Number(props.contract?.annual_increase_rate ?? props.renewedFrom?.annual_increase_rate ?? 0)
+
 const form = useForm({
   property_unit_id:           props.contract?.property_unit_id ?? props.renewedFrom?.property_unit_id ?? '',
   revenue_type:               props.contract?.revenue_type ?? props.renewedFrom?.revenue_type ?? 'direct_rent',
@@ -302,7 +335,7 @@ const form = useForm({
   collection_currency:        props.contract?.collection_currency ?? props.renewedFrom?.collection_currency ?? 'EGP',
   collection_interval_months: props.contract?.collection_interval_months ?? props.renewedFrom?.collection_interval_months ?? 1,
   insurance_months:           props.contract?.insurance_months ?? props.renewedFrom?.insurance_months ?? 0,
-  annual_increase_rate:       props.contract?.annual_increase_rate ?? props.renewedFrom?.annual_increase_rate ?? 0,
+  annual_increase_schedule:   Array.isArray(initialIncreaseSchedule) ? initialIncreaseSchedule : [],
   renewed_from_contract_id:   props.renewedFrom?.id ?? null,
 })
 
@@ -356,13 +389,43 @@ const firstCollectionAmount = computed(() => rentBasis.value * form.collection_i
 
 const canPreview = computed(() => form.start_date && form.end_date && rentBasis.value > 0)
 
-const firstIncreaseDate = computed(() => {
-  if (!form.start_date) return ''
-  const d = new Date(form.start_date)
-  d.setFullYear(d.getFullYear() + 1)
-  d.setDate(d.getDate() + 1)
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+const annualIncreaseYears = computed(() => {
+  if (!form.start_date || !form.end_date) return []
+
+  const start = new Date(form.start_date)
+  const end = new Date(form.end_date)
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return []
+
+  const years = []
+  const increaseDate = new Date(start)
+  increaseDate.setFullYear(increaseDate.getFullYear() + 1)
+  increaseDate.setDate(increaseDate.getDate() + 1)
+
+  while (increaseDate <= end) {
+    years.push(increaseDate.getFullYear())
+    increaseDate.setFullYear(increaseDate.getFullYear() + 1)
+  }
+
+  return years
 })
+
+watch(
+  annualIncreaseYears,
+  (years) => {
+    const existing = new Map(
+      (Array.isArray(form.annual_increase_schedule) ? form.annual_increase_schedule : []).map((row) => [
+        Number(row.year),
+        Number(row.rate) || 0,
+      ])
+    )
+
+    form.annual_increase_schedule = years.map((year) => ({
+      year,
+      rate: existing.has(year) ? existing.get(year) : legacyIncreaseRate,
+    }))
+  },
+  { immediate: true }
+)
 
 function formatDate(d) {
   if (!d) return '—'
@@ -375,6 +438,11 @@ function formatMoney(v) {
 }
 
 function submit() {
+  form.annual_increase_schedule = (form.annual_increase_schedule || []).map((row) => ({
+    year: Number(row.year),
+    rate: Number(row.rate) || 0,
+  }))
+
   if (isEdit.value) {
     form.put(route('company.properties.contracts.update', [
       props.company.id,

@@ -28,6 +28,7 @@ class RentContract extends Model
         'insurance_months',
         'insurance_amount',
         'annual_increase_rate',
+        'annual_increase_schedule',
         'renewed_from_contract_id',
         'status',
         'terminated_date',
@@ -45,6 +46,7 @@ class RentContract extends Model
         'management_fee_rate'        => 'decimal:2',
         'insurance_amount'           => 'decimal:2',
         'annual_increase_rate'       => 'decimal:2',
+        'annual_increase_schedule'   => 'array',
         'collection_interval_months' => 'integer',
         'insurance_months'           => 'integer',
     ];
@@ -158,31 +160,48 @@ class RentContract extends Model
     public function rentBasisForDate(Carbon $date): float
     {
         $basis = $this->rentBasis();
-        $rate  = (float) $this->annual_increase_rate / 100;
+        $schedule = collect($this->annual_increase_schedule ?? [])
+            ->filter(fn ($row) => isset($row['year']) && isset($row['rate']))
+            ->map(fn ($row) => [
+                'year' => (int) $row['year'],
+                'rate' => (float) $row['rate'],
+            ])
+            ->sortBy('year')
+            ->values();
 
-        if ($rate <= 0) {
-            return $basis;
+        if ($schedule->isEmpty()) {
+            $rate = (float) $this->annual_increase_rate / 100;
+            if ($rate <= 0) {
+                return $basis;
+            }
+
+            $increaseStart = $this->start_date->copy()->addYear()->addDay();
+            if ($date->lt($increaseStart)) {
+                return $basis;
+            }
+
+            $yearsApplied = 0;
+            $boundary = $increaseStart->copy();
+            while ($date->gte($boundary)) {
+                $yearsApplied++;
+                $boundary->addYear();
+            }
+
+            return round($basis * pow(1 + $rate, $yearsApplied), 2);
         }
 
-        // Anniversary is start_date + 1 year; increase applies from that day onward
-        // First increase: start_date + 1 year (not +1 day — the increase applies AT the anniversary)
-        // Per agreement: 15/02/2026 → increase from 16/02/2027
-        $increaseStart = $this->start_date->copy()->addYear()->addDay();
+        $current = $basis;
+        $boundary = $this->start_date->copy()->addYear()->addDay();
+        foreach ($schedule as $row) {
+            if ($date->lt($boundary)) {
+                break;
+            }
 
-        if ($date->lt($increaseStart)) {
-            return $basis;
-        }
-
-        // How many full years of increase have been applied
-        // Each subsequent year: increaseStart + (n-1) years
-        $yearsApplied = 0;
-        $boundary = $increaseStart->copy();
-        while ($date->gte($boundary)) {
-            $yearsApplied++;
+            $current = round($current * (1 + ($row['rate'] / 100)), 2);
             $boundary->addYear();
         }
 
-        return round($basis * pow(1 + $rate, $yearsApplied), 2);
+        return $current;
     }
 
     /**

@@ -94,7 +94,8 @@ class RentContractController extends Controller
             'collection_interval_months' => $data['collection_interval_months'],
             'insurance_months'           => $data['insurance_months'] ?? 0,
             'insurance_amount'           => $insuranceAmount,
-            'annual_increase_rate'       => $data['annual_increase_rate'] ?? 0,
+            'annual_increase_rate'       => $this->legacyAnnualRateFromSchedule($data),
+            'annual_increase_schedule'   => $this->normalizeIncreaseSchedule($data['annual_increase_schedule'] ?? []),
             'renewed_from_contract_id'   => $data['renewed_from_contract_id'] ?? null,
             'status'                     => 'running',
             'created_by'                 => auth()->id(),
@@ -167,7 +168,8 @@ class RentContractController extends Controller
                 'collection_interval_months' => $data['collection_interval_months'],
                 'insurance_months'           => $data['insurance_months'] ?? 0,
                 'insurance_amount'           => $insuranceAmount,
-                'annual_increase_rate'       => $data['annual_increase_rate'] ?? 0,
+                'annual_increase_rate'       => $this->legacyAnnualRateFromSchedule($data),
+                'annual_increase_schedule'   => $this->normalizeIncreaseSchedule($data['annual_increase_schedule'] ?? []),
                 'updated_by'                 => auth()->id(),
             ]);
 
@@ -296,9 +298,34 @@ class RentContractController extends Controller
             'collection_currency'        => 'required|string|max:10',
             'collection_interval_months' => 'required|integer|in:1,2,3,4,6,12',
             'insurance_months'           => 'nullable|integer|min:0|max:24',
-            'annual_increase_rate'       => 'nullable|numeric|min:0|max:100',
+            'annual_increase_schedule'   => 'nullable|array',
+            'annual_increase_schedule.*.year' => 'required|integer|min:1900|max:3000',
+            'annual_increase_schedule.*.rate' => 'required|numeric|min:0|max:100',
             'renewed_from_contract_id'   => 'nullable|exists:rent_contracts,id',
         ]);
+    }
+
+    private function normalizeIncreaseSchedule(array $rows): array
+    {
+        return collect($rows)
+            ->filter(fn ($r) => isset($r['year']) && isset($r['rate']))
+            ->map(fn ($r) => [
+                'year' => (int) $r['year'],
+                'rate' => round((float) $r['rate'], 2),
+            ])
+            ->sortBy('year')
+            ->values()
+            ->all();
+    }
+
+    private function legacyAnnualRateFromSchedule(array $data): float
+    {
+        $schedule = $this->normalizeIncreaseSchedule($data['annual_increase_schedule'] ?? []);
+        if (empty($schedule)) {
+            return 0;
+        }
+
+        return (float) $schedule[0]['rate'];
     }
 
     private function tenantsForCompany(int $companyId): array

@@ -63,9 +63,9 @@
           </div>
         </div>
         <div class="fv-card">
-          <div class="fv-text-muted text-xs uppercase tracking-wider mb-1">Annual Increase</div>
+          <div class="fv-text-muted text-xs uppercase tracking-wider mb-1">Increase Plan</div>
           <div class="fv-text-primary font-semibold text-sm">
-            {{ contract.annual_increase_rate }}%
+            {{ increasePlanSummary }}
           </div>
         </div>
       </div>
@@ -229,8 +229,8 @@
               <dd class="fv-text-primary">{{ contract.management_fee_rate }}%</dd></div>
             <div><dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Collection Interval</dt>
               <dd class="fv-text-primary">{{ intervalLabel(contract.collection_interval_months) }}</dd></div>
-            <div><dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Annual Increase</dt>
-              <dd class="fv-text-primary">{{ contract.annual_increase_rate }}%</dd></div>
+            <div><dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Increase Plan</dt>
+              <dd class="fv-text-primary">{{ increasePlanSummary }}</dd></div>
             <div v-if="contract.terminated_date">
               <dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Terminated Date</dt>
               <dd class="text-red-400">{{ formatDate(contract.terminated_date) }}</dd>
@@ -345,6 +345,17 @@ const totalRevenue = computed(() =>
 const totalCollections = computed(() =>
   (props.contract.collections || []).reduce((s, c) => s + parseFloat(c.collection_amount || 0), 0)
 )
+const increasePlanSummary = computed(() => {
+  const rows = Array.isArray(props.contract.annual_increase_schedule)
+    ? props.contract.annual_increase_schedule
+    : []
+
+  if (!rows.length) {
+    return `${props.contract.annual_increase_rate || 0}% (legacy)`
+  }
+
+  return rows.map((r) => `${r.year}: ${r.rate}%`).join(' | ')
+})
 
 function formatDate(d) {
   if (!d) return '—'
