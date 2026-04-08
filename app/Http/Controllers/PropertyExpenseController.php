@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Property;
 use App\Models\PropertyExpense;
 use App\Models\PropertyExpensePayment;
+use App\Models\ExpenseItem;
 use App\Models\ExpenseCategory;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -241,7 +242,7 @@ class PropertyExpenseController extends Controller
             ->get(['id', 'category_name'])
             ->keyBy(fn ($c) => strtolower(trim($c->category_name)));
 
-        $itemMap = \App\Models\ExpenseItem::where('company_id', $company->id)
+        $itemMap = ExpenseItem::where('company_id', $company->id)
             ->where('is_active', true)
             ->get(['id', 'expense_category_id', 'item_name'])
             ->groupBy(fn ($i) => strtolower(trim($i->item_name)));
@@ -302,6 +303,17 @@ class PropertyExpenseController extends Controller
                     return back()->withErrors(['file' => "Row {$r}: fx_rate must be a positive number or empty."]);
                 }
             }
+
+            if (isset($headerMap['initial_payments'])) {
+                $paymentsRaw = trim((string)($row[$headerMap['initial_payments']] ?? ''));
+                if ($paymentsRaw !== '') {
+                    try {
+                        $this->parseInitialPayments($paymentsRaw);
+                    } catch (\InvalidArgumentException $e) {
+                        return back()->withErrors(['file' => "Row {$r}: " . $e->getMessage()]);
+                    }
+                }
+            }
         }
 
         if ($validRows === 0) {
@@ -338,12 +350,22 @@ class PropertyExpenseController extends Controller
             'expense_amount',
             'currency',
             'fx_rate',
+            'initial_payments',
             'notes',
         ];
 
         foreach ($headers as $i => $header) {
             $sheet->setCellValueByColumnAndRow($i + 1, 1, $header);
         }
+
+        $sheet->setCellValue('A2', 'General & Admin');
+        $sheet->setCellValue('B2', 'Consultancy Expenses');
+        $sheet->setCellValue('C2', now()->toDateString());
+        $sheet->setCellValue('D2', '7000');
+        $sheet->setCellValue('E2', 'EGP');
+        $sheet->setCellValue('F2', '1');
+        $sheet->setCellValue('G2', now()->toDateString() . ':3000|' . now()->addMonth()->toDateString() . ':4000');
+        $sheet->setCellValue('H2', 'Example with two initial payments');
 
         $writer = new Xlsx($spreadsheet);
         $fileName = 'property_expenses_template.xlsx';
@@ -369,5 +391,40 @@ class PropertyExpenseController extends Controller
     private function currencyOptions(): array
     {
         return ['EGP', 'USD', 'EUR', 'GBP', 'SAR', 'AED'];
+    }
+
+    private function parseInitialPayments(string $raw): array
+    {
+        $entries = preg_split('/[|;]/', $raw);
+        $payments = [];
+
+        foreach ($entries as $entry) {
+            $entry = trim($entry);
+            if ($entry === '') continue;
+
+            if (!str_contains($entry, ':')) {
+                throw new \InvalidArgumentException('initial_payments format must be date:amount|date:amount');
+            }
+
+            [$datePart, $amountPart] = array_map('trim', explode(':', $entry, 2));
+            if ($datePart === '' || $amountPart === '') {
+                throw new \InvalidArgumentException('initial_payments contains empty date or amount.');
+            }
+
+            if (strtotime($datePart) === false) {
+                throw new \InvalidArgumentException("invalid payment date '{$datePart}'.");
+            }
+
+            if (!is_numeric($amountPart) || (float) $amountPart <= 0) {
+                throw new \InvalidArgumentException("invalid payment amount '{$amountPart}'.");
+            }
+
+            $payments[] = [
+                'payment_date' => date('Y-m-d', strtotime($datePart)),
+                'amount' => (float) $amountPart,
+            ];
+        }
+
+        return $payments;
     }
 }

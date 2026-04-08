@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Models\ExpenseCategory;
 use App\Models\ExpenseItem;
 use App\Models\PropertyExpense;
+use App\Models\PropertyExpensePayment;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -105,8 +106,9 @@ class ImportPropertyExpensesJob implements ShouldQueue
                 $fxRate = $fxRaw === '' ? null : (float) $fxRaw;
             }
             $notes = !empty($headerMap['notes']) ? trim((string)($row[$headerMap['notes']] ?? '')) : null;
+            $initialPaymentsRaw = !empty($headerMap['initial_payments']) ? trim((string)($row[$headerMap['initial_payments']] ?? '')) : '';
 
-            PropertyExpense::create([
+            $expense = PropertyExpense::create([
                 'company_id'          => $this->companyId,
                 'property_id'         => $this->propertyId,
                 'expense_category_id' => $cat->id,
@@ -119,6 +121,17 @@ class ImportPropertyExpensesJob implements ShouldQueue
                 'status'              => PropertyExpense::STATUS_UNPAID,
                 'created_by'          => $this->userId,
             ]);
+
+            foreach ($this->parseInitialPayments($initialPaymentsRaw) as $p) {
+                PropertyExpensePayment::create([
+                    'company_id'          => $this->companyId,
+                    'property_expense_id' => $expense->id,
+                    'payment_date'        => $p['payment_date'],
+                    'amount'              => $p['amount'],
+                ]);
+            }
+
+            $expense->recalculateStatus();
             $imported++;
         }
 
@@ -128,5 +141,30 @@ class ImportPropertyExpensesJob implements ShouldQueue
             'property_id' => $this->propertyId,
             'imported_rows' => $imported,
         ]);
+    }
+
+    private function parseInitialPayments(string $raw): array
+    {
+        if ($raw === '') return [];
+
+        $entries = preg_split('/[|;]/', $raw);
+        $payments = [];
+
+        foreach ($entries as $entry) {
+            $entry = trim($entry);
+            if ($entry === '' || !str_contains($entry, ':')) continue;
+
+            [$datePart, $amountPart] = array_map('trim', explode(':', $entry, 2));
+            if ($datePart === '' || $amountPart === '') continue;
+            if (strtotime($datePart) === false) continue;
+            if (!is_numeric($amountPart) || (float) $amountPart <= 0) continue;
+
+            $payments[] = [
+                'payment_date' => date('Y-m-d', strtotime($datePart)),
+                'amount' => (float) $amountPart,
+            ];
+        }
+
+        return $payments;
     }
 }
