@@ -179,7 +179,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
             // Name: company.properties.expenses.*
             Route::prefix('/{property}/expenses')->name('expenses.')->group(function () {
                 Route::get('/',                                          [PropertyExpenseController::class, 'index'])        ->name('index');
+                Route::get('/template',                                  [PropertyExpenseController::class, 'downloadTemplate'])->name('template');
                 Route::post('/',                                         [PropertyExpenseController::class, 'store'])        ->name('store');
+                Route::post('/import',                                   [PropertyExpenseController::class, 'import'])       ->name('import');
                 Route::put('/{expense}',                                 [PropertyExpenseController::class, 'update'])       ->name('update');
                 Route::delete('/{expense}',                              [PropertyExpenseController::class, 'destroy'])      ->name('destroy');
                 Route::post('/{expense}/payments',                       [PropertyExpenseController::class, 'addPayment'])   ->name('payments.store');

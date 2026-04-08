@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ImportPropertyExpensesJob;
 use App\Models\Company;
 use App\Models\Property;
 use App\Models\PropertyExpense;
@@ -9,6 +10,10 @@ use App\Models\PropertyExpensePayment;
 use App\Models\ExpenseCategory;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use PhpOffice\PhpSpreadsheet\IOFactory;
+use PhpOffice\PhpSpreadsheet\Spreadsheet;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
+use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
 class PropertyExpenseController extends Controller
 {
@@ -195,6 +200,159 @@ class PropertyExpenseController extends Controller
         $payment->delete();
         $expense->recalculateStatus();
         return back()->with('success', 'Payment removed.');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // IMPORT EXPENSES EXCEL (QUEUE)
+    // ═══════════════════════════════════════════════════════════════════
+    public function import(Request $request, Company $company, Property $property)
+    {
+        $this->authorizeCompany($company);
+
+        $request->validate([
+            'file' => 'required|file|mimes:xlsx,xls|max:10240',
+        ]);
+
+        $file = $request->file('file');
+        $reader = IOFactory::createReaderForFile($file->getRealPath());
+        $reader->setReadDataOnly(true);
+        $sheet = $reader->load($file->getRealPath())->getActiveSheet();
+        $rows = $sheet->toArray(null, true, true, true);
+
+        if (count($rows) < 2) {
+            return back()->withErrors(['file' => 'Excel file must contain header + at least one data row.']);
+        }
+
+        $headerMap = [];
+        foreach ($rows[1] as $col => $name) {
+            $key = strtolower(trim((string) $name));
+            if ($key !== '') $headerMap[$key] = $col;
+        }
+
+        $requiredColumns = ['expense_category', 'expense_item', 'expense_date', 'expense_amount', 'currency'];
+        foreach ($requiredColumns as $colName) {
+            if (!isset($headerMap[$colName])) {
+                return back()->withErrors(['file' => "Missing required column: {$colName}"]);
+            }
+        }
+
+        $allowedCurrencies = $this->currencyOptions();
+        $catMap = ExpenseCategory::where('company_id', $company->id)
+            ->get(['id', 'category_name'])
+            ->keyBy(fn ($c) => strtolower(trim($c->category_name)));
+
+        $itemMap = \App\Models\ExpenseItem::where('company_id', $company->id)
+            ->where('is_active', true)
+            ->get(['id', 'expense_category_id', 'item_name'])
+            ->groupBy(fn ($i) => strtolower(trim($i->item_name)));
+
+        $validRows = 0;
+        for ($r = 2; $r <= count($rows); $r++) {
+            $row = $rows[$r] ?? [];
+            $empty = true;
+            foreach ($row as $v) {
+                if (trim((string) $v) !== '') { $empty = false; break; }
+            }
+            if ($empty) continue;
+            $validRows++;
+
+            $categoryName = strtolower(trim((string)($row[$headerMap['expense_category']] ?? '')));
+            $itemName = strtolower(trim((string)($row[$headerMap['expense_item']] ?? '')));
+            $rawDate = $row[$headerMap['expense_date']] ?? null;
+            $amountRaw = trim((string)($row[$headerMap['expense_amount']] ?? ''));
+            $currency = strtoupper(trim((string)($row[$headerMap['currency']] ?? '')));
+
+            if ($categoryName === '' || $itemName === '' || $amountRaw === '' || $currency === '' || $rawDate === null || $rawDate === '') {
+                return back()->withErrors(['file' => "Row {$r}: all required fields must be filled."]);
+            }
+
+            $category = $catMap[$categoryName] ?? null;
+            if (!$category) {
+                return back()->withErrors(['file' => "Row {$r}: expense_category not found in company settings."]);
+            }
+
+            $item = $itemMap[$itemName]?->firstWhere('expense_category_id', $category->id);
+            if (!$item) {
+                return back()->withErrors(['file' => "Row {$r}: expense_item is invalid for selected category."]);
+            }
+
+            if (!is_numeric($amountRaw) || (float) $amountRaw <= 0) {
+                return back()->withErrors(['file' => "Row {$r}: expense_amount must be a number greater than 0."]);
+            }
+
+            if (!in_array($currency, $allowedCurrencies, true)) {
+                return back()->withErrors(['file' => "Row {$r}: currency must be one of " . implode(', ', $allowedCurrencies)]);
+            }
+
+            if (is_numeric($rawDate)) {
+                try {
+                    ExcelDate::excelToDateTimeObject((float) $rawDate)->format('Y-m-d');
+                } catch (\Throwable $e) {
+                    return back()->withErrors(['file' => "Row {$r}: expense_date is invalid."]);
+                }
+            } else {
+                if (strtotime((string) $rawDate) === false) {
+                    return back()->withErrors(['file' => "Row {$r}: expense_date is invalid."]);
+                }
+            }
+
+            if (isset($headerMap['fx_rate'])) {
+                $fxRaw = trim((string)($row[$headerMap['fx_rate']] ?? ''));
+                if ($fxRaw !== '' && (!is_numeric($fxRaw) || (float) $fxRaw < 0)) {
+                    return back()->withErrors(['file' => "Row {$r}: fx_rate must be a positive number or empty."]);
+                }
+            }
+        }
+
+        if ($validRows === 0) {
+            return back()->withErrors(['file' => 'No valid data rows found.']);
+        }
+
+        $storedPath = $file->store('imports/property-expenses');
+
+        ImportPropertyExpensesJob::dispatch(
+            $company->id,
+            $property->id,
+            auth()->id(),
+            $storedPath
+        );
+
+        return back()->with('success', 'Excel uploaded successfully. Import is queued and will run in background.');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // DOWNLOAD EXPENSES TEMPLATE
+    // ═══════════════════════════════════════════════════════════════════
+    public function downloadTemplate(Company $company, Property $property)
+    {
+        $this->authorizeCompany($company);
+
+        $spreadsheet = new Spreadsheet();
+        $sheet = $spreadsheet->getActiveSheet();
+        $sheet->setTitle('Expenses Template');
+
+        $headers = [
+            'expense_category',
+            'expense_item',
+            'expense_date',
+            'expense_amount',
+            'currency',
+            'fx_rate',
+            'notes',
+        ];
+
+        foreach ($headers as $i => $header) {
+            $sheet->setCellValueByColumnAndRow($i + 1, 1, $header);
+        }
+
+        $writer = new Xlsx($spreadsheet);
+        $fileName = 'property_expenses_template.xlsx';
+
+        return response()->streamDownload(function () use ($writer) {
+            $writer->save('php://output');
+        }, $fileName, [
+            'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        ]);
     }
 
     // ═══════════════════════════════════════════════════════════════════

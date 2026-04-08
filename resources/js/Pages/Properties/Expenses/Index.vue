@@ -24,12 +24,42 @@
           </div>
         </div>
 
-        <button @click="openAdd" class="fv-btn-gold px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-          </svg>
-          Add New Expense
-        </button>
+        <div class="flex items-center gap-2">
+          <a
+            :href="route('company.properties.expenses.template', [company.id, property.id])"
+            class="fv-btn-secondary px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 5v14m0 0l-5-5m5 5l5-5M19 19H5"/>
+            </svg>
+            Download Excel Template
+          </a>
+
+          <input
+            ref="excelFileInput"
+            type="file"
+            accept=".xlsx,.xls"
+            class="hidden"
+            @change="onExcelFileSelected"
+          />
+          <button
+            @click="triggerExcelUpload"
+            :disabled="importingExcel"
+            class="fv-btn-secondary px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2"
+          >
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3"/>
+            </svg>
+            {{ importingExcel ? 'Uploading…' : 'Upload Excel' }}
+          </button>
+
+          <button @click="openAdd" class="fv-btn-gold px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Add New Expense
+          </button>
+        </div>
       </div>
 
       <!-- ── Summary Strip ───────────────────────────────────────── -->
@@ -352,7 +382,7 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { Link, router, usePage } from '@inertiajs/vue3'
+import { Link, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
 // ── Props ────────────────────────────────────────────────────────────
@@ -570,6 +600,8 @@ function deletePayment(payment) {
 // ── Delete Expense ───────────────────────────────────────────────────
 const showDeleteModal  = ref(false)
 const deletingExpense  = ref(null)
+const excelFileInput   = ref(null)
+const importingExcel   = ref(false)
 
 function confirmDelete(exp) {
   deletingExpense.value = exp
@@ -584,6 +616,29 @@ function executeDelete() {
     {
       onSuccess: () => { showDeleteModal.value = false; deletingExpense.value = null },
       onFinish:  () => { submitting.value = false },
+    }
+  )
+}
+
+function triggerExcelUpload() {
+  if (importingExcel.value) return
+  excelFileInput.value?.click()
+}
+
+function onExcelFileSelected(event) {
+  const file = event.target?.files?.[0]
+  if (!file) return
+
+  importingExcel.value = true
+  router.post(
+    route('company.properties.expenses.import', [props.company.id, props.property.id]),
+    { file },
+    {
+      forceFormData: true,
+      onFinish: () => {
+        importingExcel.value = false
+        if (excelFileInput.value) excelFileInput.value.value = ''
+      },
     }
   )
 }
