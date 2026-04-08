@@ -237,6 +237,39 @@
             </div>
           </div>
 
+          <!-- Management Fees Expense -->
+          <div class="fv-card">
+            <h2 class="text-sm font-bold fv-text-label uppercase tracking-wider mb-4">Management Fees Expense</h2>
+
+            <label class="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                v-model="form.has_management_fees"
+                class="rounded border"
+                style="accent-color:var(--fv-blue)"
+              />
+              <span class="fv-text-primary text-sm font-semibold">Has Management Fees</span>
+            </label>
+
+            <div v-if="form.has_management_fees" class="mt-4">
+              <label class="fv-text-label text-xs font-semibold uppercase tracking-wider block mb-1">
+                Percentage from Collection (%)
+              </label>
+              <input
+                type="number"
+                v-model.number="form.management_fee_expense_rate"
+                min="0"
+                max="100"
+                step="0.01"
+                class="fv-input rounded-lg px-3 py-2 text-sm w-full"
+                placeholder="0"
+              />
+              <p class="fv-text-muted text-xs mt-1">
+                This will be recorded as cash out on each collection due date (same interval terms).
+              </p>
+            </div>
+          </div>
+
           <!-- Schedule Preview -->
           <div v-if="canPreview" class="fv-card"
             style="border-color:var(--fv-blue-border);background:var(--fv-blue-dim)">
@@ -324,6 +357,8 @@ const form = useForm({
   property_unit_id:           props.contract?.property_unit_id ?? props.renewedFrom?.property_unit_id ?? '',
   revenue_type:               props.contract?.revenue_type ?? props.renewedFrom?.revenue_type ?? 'direct_rent',
   management_fee_rate:        props.contract?.management_fee_rate ?? props.renewedFrom?.management_fee_rate ?? '',
+  has_management_fees:        !!(props.contract?.has_management_fees ?? props.renewedFrom?.has_management_fees ?? false),
+  management_fee_expense_rate: props.contract?.management_fee_expense_rate ?? props.renewedFrom?.management_fee_expense_rate ?? '',
   tenant_nature:              props.contract?.tenant_nature ?? props.renewedFrom?.tenant_nature ?? '',
   customer_id:                props.contract?.customer_id ?? props.renewedFrom?.customer_id ?? '',
   start_date:                 props.contract?.start_date ? props.contract.start_date.slice(0, 10) : '',
@@ -438,6 +473,10 @@ function formatMoney(v) {
 }
 
 function submit() {
+  if (!form.has_management_fees) {
+    form.management_fee_expense_rate = ''
+  }
+
   form.annual_increase_schedule = (form.annual_increase_schedule || []).map((row) => ({
     year: Number(row.year),
     rate: Number(row.rate) || 0,

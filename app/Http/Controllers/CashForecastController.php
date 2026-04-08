@@ -133,11 +133,31 @@ class CashForecastController extends Controller
             $expenseByItem[$item][$row->month] = (float) $row->amount;
         }
 
+        // ── MANAGEMENT FEES (Cash Out based on collections) ──────────────────
+        $managementFees = DB::table('rent_collections as rc')
+            ->join('rent_contracts as rct', 'rc.rent_contract_id', '=', 'rct.id')
+            ->where('rc.company_id', $company->id)
+            ->whereBetween('rc.collection_date', [$fromDate, $toDate])
+            ->where('rct.has_management_fees', 1)
+            ->whereNotNull('rct.management_fee_expense_rate')
+            ->select(
+                DB::raw('DATE_FORMAT(rc.collection_date, "%Y-%m") as month'),
+                DB::raw('SUM(rc.collection_amount * (rct.management_fee_expense_rate / 100)) as amount')
+            )
+            ->groupBy(DB::raw('DATE_FORMAT(rc.collection_date, "%Y-%m")'))
+            ->get();
+
+        $managementFeesByMonth = [];
+        foreach ($managementFees as $row) {
+            $managementFeesByMonth[$row->month] = round((float) $row->amount, 2);
+        }
+
         return response()->json([
             'months'            => $months,
             'rentByTypeUnit'    => $rentByTypeUnit,
             'installByTypeUnit' => $installByTypeUnit,
             'expenseByItem'     => $expenseByItem,
+            'managementFeesByMonth' => $managementFeesByMonth,
         ]);
     }
 }

@@ -19,6 +19,7 @@ const months            = ref([])
 const rentByTypeUnit    = ref({})
 const installByTypeUnit = ref({})
 const expenseByItem     = ref({})
+const managementFeesByMonth = ref({})
 const loading           = ref(false)
 
 // ── Section collapse — separate refs so Vue tracks them reactively ─────────
@@ -137,11 +138,19 @@ const otherPayTotals = computed(() => {
     return out
 })
 
+const managementFeeTotals = computed(() => {
+    const out = {}
+    months.value.forEach(m => {
+        out[m] = n(managementFeesByMonth.value[m])
+    })
+    return out
+})
+
 const totalCashOut = computed(() => {
     const out = {}
     months.value.forEach(m => {
         out[m] = installTotals.value[m] + expenseTotals.value[m] +
-                 salaryTotals.value[m]  + hiringTotals.value[m]  +
+                 managementFeeTotals.value[m] + salaryTotals.value[m]  + hiringTotals.value[m]  +
                  otherPayTotals.value[m]
     })
     return out
@@ -190,6 +199,7 @@ async function fetchData() {
         rentByTypeUnit.value    = data.rentByTypeUnit    || {}
         installByTypeUnit.value = data.installByTypeUnit || {}
         expenseByItem.value     = data.expenseByItem     || {}
+        managementFeesByMonth.value = data.managementFeesByMonth || {}
 
         months.value.forEach(m => {
             if (!(m in salaries.value))   salaries.value[m]   = ''
@@ -652,6 +662,21 @@ watch([totalCashIn, totalCashOut, accumulated], () => nextTick(renderCharts), { 
                                 style="padding:8px 12px;text-align:center;font-size:11px;
                                        color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);
                                        border-left:1px solid var(--fv-border,#1B3558);">—</td>
+                        </tr>
+
+                        <!-- Salaries Payment — fixed editable row -->
+                        <tr style="background:rgba(11,26,48,0.8);">
+                            <td style="position:sticky;left:0;z-index:10;background:rgba(11,26,48,0.8);
+                                       padding:8px 16px 8px 28px;font-size:11px;font-weight:600;
+                                       color:#E2E8F0;border-bottom:1px solid var(--fv-border,#1B3558);">
+                                Management Fees
+                            </td>
+                            <td v-for="m in months" :key="m"
+                                style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;
+                                       color:#E2E8F0;border-bottom:1px solid var(--fv-border,#1B3558);
+                                       border-left:1px solid var(--fv-border,#1B3558);">
+                                {{ fmt(managementFeeTotals[m]) }}
+                            </td>
                         </tr>
 
                         <!-- Salaries Payment — fixed editable row -->
