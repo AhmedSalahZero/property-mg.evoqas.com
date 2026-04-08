@@ -381,9 +381,9 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { Link, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
+import { Link, router } from '@inertiajs/vue3'
+import { computed, ref } from 'vue'
 
 // ── Props ────────────────────────────────────────────────────────────
 const props = defineProps({
