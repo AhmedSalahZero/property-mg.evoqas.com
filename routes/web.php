@@ -15,6 +15,7 @@ use App\Http\Controllers\PropertyController;
 use App\Http\Controllers\RentContractController;
 use App\Http\Controllers\PropertyInstallmentController;
 use App\Http\Controllers\PropertyExpenseController;
+use App\Http\Controllers\PropertyReportController;
 use App\Http\Controllers\PropertyDashboardController;
 use App\Http\Controllers\CashForecastController;
 use App\Http\Controllers\KeepOrSellController;
@@ -186,6 +187,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 Route::delete('/{expense}',                              [PropertyExpenseController::class, 'destroy'])      ->name('destroy');
                 Route::post('/{expense}/payments',                       [PropertyExpenseController::class, 'addPayment'])   ->name('payments.store');
                 Route::delete('/{expense}/payments/{payment}',           [PropertyExpenseController::class, 'deletePayment'])->name('payments.destroy');
+            });
+
+            // ── Property Reports ─────────────────────────────────────────────
+            // URL:  /companies/{company}/properties/{property}/reports/...
+            // Name: company.properties.reports.*
+            Route::prefix('/{property}/reports')->name('reports.')->group(function () {
+                Route::get('/',                    [PropertyReportController::class, 'index'])->name('index');
+                Route::get('/rent-expenses',      [PropertyReportController::class, 'rentExpenses'])->name('rent-expenses');
+                Route::get('/rent-expenses/data', [PropertyReportController::class, 'rentExpensesData'])->name('rent-expenses.data');
             });
 
         }); // end properties

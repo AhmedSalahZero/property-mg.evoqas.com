@@ -628,6 +628,8 @@ const goTo = (section) => {
     showInstallmentModal.value = true
   } else if (section === 'expenses') {
     window.location.href = route('company.properties.expenses.index', { company: prop.company_id, property: prop.id });
+  } else if (section === 'reports') {
+    window.location.href = route('company.properties.reports.index', { company: prop.company_id, property: prop.id });
   } else {
     alert(`"${section}" for "${prop.property_name}" — coming soon.`);
   }
