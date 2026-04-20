@@ -66,6 +66,7 @@ const form = useForm({
   job_title:             props.user.job_title ?? '',
   phone:                 props.user.phone ?? '',
   is_active:             props.user.is_active ?? true,
+  max_users:             props.user.max_users ?? null,
 })
 
 const adminCount = computed(() => 0)

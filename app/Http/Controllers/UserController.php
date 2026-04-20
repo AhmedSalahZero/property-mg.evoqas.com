@@ -13,7 +13,7 @@ use Inertia\Inertia;
 class UserController extends Controller
 {
     // Max Company Admins allowed per company
-    const MAX_COMPANY_ADMINS = 5;
+    const MAX_COMPANY_ADMINS = 3;
 
     // ── Index — list users ──────────────────────────────────────────────────────
     public function index()
@@ -57,7 +57,6 @@ class UserController extends Controller
     public function create()
     {
         $authUser = Auth::user();
-
         abort_unless($authUser->is_super_admin || $authUser->role === 'company_admin', 403);
 
         if ($authUser->is_super_admin) {
@@ -67,11 +66,16 @@ class UserController extends Controller
             $companies = Company::where('id', $authUser->company_id)->get(['id', 'name']);
         }
 
+        $userLimit = $authUser->is_super_admin ? null : $authUser->max_users;
+        $userCount = $authUser->is_super_admin ? 0 : $authUser->companyUserCount();
+
         return Inertia::render('Users/Create', [
             'companies'   => $companies,
             'roles'       => $this->roleOptions($authUser),
             'authRole'    => $authUser->is_super_admin ? 'super_admin' : $authUser->role,
             'myCompanyId' => $authUser->company_id,
+            'userLimit'   => $userLimit,
+            'userCount'   => $userCount,
         ]);
     }
 
@@ -90,11 +94,20 @@ class UserController extends Controller
             'job_title'  => 'nullable|string|max:255',
             'phone'      => 'nullable|string|max:50',
             'is_active'  => 'boolean',
+            'max_users'  => 'nullable|integer|min:1|max:9999',
         ]);
 
         // Company Admin can only add to their own company
         if (!$authUser->is_super_admin) {
             abort_unless((int) $data['company_id'] === $authUser->company_id, 403);
+
+            if (!is_null($authUser->max_users)) {
+                abort_if(
+                    $authUser->companyUserCount() >= $authUser->max_users,
+                    422,
+                    'You have reached your user creation limit of ' . $authUser->max_users . ' users.'
+                );
+            }
         }
 
         // Enforce max 3 company_admins per company
@@ -111,6 +124,9 @@ class UserController extends Controller
             'job_title'  => $data['job_title'] ?? null,
             'phone'      => $data['phone'] ?? null,
             'is_active'  => $data['is_active'] ?? true,
+            'max_users'  => ($authUser->is_super_admin && ($data['role'] ?? '') === 'company_admin')
+                ? ($data['max_users'] ?? null)
+                : null,
         ]);
 
         return redirect()->route('users.index')
@@ -162,6 +178,7 @@ class UserController extends Controller
             'job_title'  => 'nullable|string|max:255',
             'phone'      => 'nullable|string|max:50',
             'is_active'  => 'boolean',
+            'max_users'  => 'nullable|integer|min:1|max:9999',
         ]);
 
         if (!$authUser->is_super_admin) {
@@ -185,6 +202,12 @@ class UserController extends Controller
 
         if (!empty($data['password'])) {
             $updateData['password'] = Hash::make($data['password']);
+        }
+
+        if ($authUser->is_super_admin) {
+            $updateData['max_users'] = ($data['role'] === 'company_admin')
+                ? ($data['max_users'] ?? null)
+                : null;
         }
 
         $user->update($updateData);
@@ -271,6 +294,7 @@ class UserController extends Controller
             'phone'      => $user->phone,
             'is_active'  => $user->is_active,
             'company_id' => $user->company_id,
+            'max_users'  => $user->max_users,
             'company'    => $user->company ? ['id' => $user->company->id, 'name' => $user->company->name] : null,
             'created_at' => $user->created_at?->format('d M Y'),
         ];

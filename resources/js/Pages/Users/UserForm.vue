@@ -98,6 +98,80 @@
           This company has {{ adminCount }} of 3 allowed Company Admins.
         </p>
       </div>
+
+      <div
+        v-if="authRole === 'super_admin' && form.role === 'company_admin'"
+        class="mt-4 p-4 rounded-lg border border-indigo-500/20 bg-indigo-500/5"
+      >
+        <div class="flex items-start gap-3">
+          <div class="w-7 h-7 rounded-md bg-indigo-500/15 border border-indigo-500/25 flex items-center justify-center flex-shrink-0 mt-0.5">
+            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="text-xs font-semibold text-indigo-300 uppercase tracking-wide mb-1">User Creation Limit</p>
+            <p class="text-xs text-slate-400 mb-3">
+              Set how many users this Company Admin is allowed to create. Leave blank for no limit.
+            </p>
+            <div class="flex items-center gap-3">
+              <div class="fv-field w-36">
+                <input
+                  v-model.number="form.max_users"
+                  type="number"
+                  min="1"
+                  max="9999"
+                  class="fv-input text-center"
+                  :class="{ 'fv-input-error': errors.max_users }"
+                  placeholder="No limit"
+                />
+                <p v-if="errors.max_users" class="fv-error">{{ errors.max_users }}</p>
+              </div>
+              <span class="text-xs text-slate-500">users maximum</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div
+      v-if="authRole === 'company_admin' && userLimit !== null && userLimit !== undefined"
+      class="fv-section"
+    >
+      <h2 class="fv-section-title">
+        <span class="fv-section-icon">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+          </svg>
+        </span>
+        User Quota
+      </h2>
+
+      <div class="space-y-2">
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-slate-400">Users in your company</span>
+          <span :class="isAtLimit ? 'text-red-400 font-semibold' : 'text-slate-300'">
+            {{ userCount }} / {{ userLimit }}
+          </span>
+        </div>
+        <div class="h-2 rounded-full bg-slate-800 overflow-hidden">
+          <div
+            class="h-full rounded-full transition-all duration-300"
+            :class="barColor"
+            :style="{ width: barWidth }"
+          />
+        </div>
+        <p class="text-xs" :class="isAtLimit ? 'text-red-400' : 'text-slate-500'">
+          <template v-if="isAtLimit">
+            You have reached your limit of {{ userLimit }} users. Contact your Super Admin to increase it.
+          </template>
+          <template v-else>
+            {{ userLimit - userCount }} user slot{{ (userLimit - userCount) !== 1 ? 's' : '' }} remaining.
+          </template>
+        </p>
+      </div>
     </div>
 
     <!-- ══ SECTION 3: Password ════════════════════════════════════════════════ -->
@@ -182,8 +256,9 @@
       <button
         type="button"
         @click="$emit('submit')"
-        :disabled="processing"
+        :disabled="processing || isAtLimit"
         class="fv-btn-primary"
+        :title="isAtLimit ? 'User limit reached — contact your Super Admin' : ''"
       >
         <svg v-if="processing" class="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none">
           <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -210,6 +285,8 @@ const props = defineProps({
   submitLabel:{ type: String, default: 'Save' },
   processing: Boolean,
   adminCount: { type: Number, default: 0 },
+  userLimit:  { type: Number, default: null },
+  userCount:  { type: Number, default: 0 },
 })
 
 defineEmits(['submit'])
@@ -219,6 +296,26 @@ const showPw = ref(false)
 const selectedRole = computed(() =>
   props.roles?.find(r => r.value === props.form.role)
 )
+
+const isAtLimit = computed(() =>
+  props.authRole === 'company_admin' &&
+  props.userLimit !== null &&
+  props.userLimit !== undefined &&
+  props.userCount >= props.userLimit
+)
+
+const barPercent = computed(() => {
+  if (!props.userLimit) return 0
+  return Math.min(100, Math.round((props.userCount / props.userLimit) * 100))
+})
+
+const barWidth = computed(() => barPercent.value + '%')
+
+const barColor = computed(() => {
+  if (barPercent.value >= 100) return 'bg-red-500'
+  if (barPercent.value >= 80) return 'bg-amber-500'
+  return 'bg-blue-500'
+})
 </script>
 
 <style scoped>

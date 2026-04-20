@@ -22,6 +22,7 @@ class User extends Authenticatable
         'job_title',
         'avatar',
         'theme',
+        'max_users',   // only used when role = company_admin
     ];
 
     protected $hidden = ['password', 'remember_token'];
@@ -33,6 +34,7 @@ class User extends Authenticatable
             'password'          => 'hashed',
             'is_super_admin'    => 'boolean',
             'is_active'         => 'boolean',
+            'max_users'         => 'integer',
         ];
     }
 
@@ -104,5 +106,27 @@ class User extends Authenticatable
     {
         if ($this->is_super_admin) return true;
         return $this->company_id === $companyId && $this->is_active;
+    }
+
+    /**
+     * How many non-super-admin users currently exist in this admin's company.
+     * Used to enforce max_users for company_admin role.
+     */
+    public function companyUserCount(): int
+    {
+        if (!$this->company_id) return 0;
+        return User::where('company_id', $this->company_id)
+            ->where('is_super_admin', false)
+            ->count();
+    }
+
+    /**
+     * Whether this company_admin has reached their user creation limit.
+     * Returns false when max_users is NULL (no limit set).
+     */
+    public function isAtUserLimit(): bool
+    {
+        if (is_null($this->max_users)) return false;
+        return $this->companyUserCount() >= $this->max_users;
     }
 }

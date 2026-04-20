@@ -34,6 +34,8 @@
           submit-label="Create User"
           :processing="form.processing"
           :admin-count="adminCount"
+          :user-limit="userLimit"
+          :user-count="userCount"
           @submit="submit"
         />
       </div>
@@ -53,6 +55,8 @@ const props = defineProps({
   roles:       Array,
   authRole:    String,
   myCompanyId: Number,
+  userLimit:   { type: Number, default: null },
+  userCount:   { type: Number, default: 0 },
 })
 
 const form = useForm({
@@ -65,6 +69,7 @@ const form = useForm({
   job_title:             '',
   phone:                 '',
   is_active:             true,
+  max_users:             null,
 })
 
 // Count existing admins for selected company (passed from controller if needed)
