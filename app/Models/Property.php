@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Property extends Model
 {
@@ -106,6 +107,11 @@ class Property extends Model
     public function rentContracts(): HasMany
     {
         return $this->hasMany(RentContract::class);
+    }
+
+    public function tags(): BelongsToMany
+    {
+        return $this->belongsToMany(Tag::class, 'property_tag')->orderBy('tags.name');
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

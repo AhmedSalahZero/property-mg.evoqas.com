@@ -546,6 +546,19 @@
           </div>
         </div>
 
+        <!-- ── DESCRIPTION (TAGS) ─────────────────────────────────────── -->
+        <div class="fv-card mb-5">
+          <div class="flex items-center gap-2 mb-4">
+            <div class="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold text-white"
+              style="background:var(--fv-blue,#1490A8);">D</div>
+            <h2 class="text-sm font-bold fv-text-primary">Description</h2>
+          </div>
+          <TagInput
+            :company-id="company.id"
+            v-model="descriptionTags"
+          />
+        </div>
+
         <!-- ── SUBMIT BAR ─────────────────────────────────────────────── -->
         <div class="sticky bottom-4 flex items-center justify-end gap-3 px-4 py-3 rounded-xl shadow-xl"
           style="background:var(--fv-bg-card,#112240); border:1px solid var(--fv-border); backdrop-filter:blur(8px);">
@@ -582,6 +595,7 @@
 import { ref, computed } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
+import TagInput from '@/Components/TagInput.vue'
 
 // ── Props ──────────────────────────────────────────────────────────────
 const props = defineProps({
@@ -634,6 +648,7 @@ const form = ref({
 const isUnit      = computed(() => form.value.nature === 'unit')
 const submitting  = ref(false)
 const expandedUnit = ref(null)
+const descriptionTags = ref([])
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const natureLabel = (n) => ({ unit:'Unit', building:'Building', land:'Land', complex:'Complex' }[n] || n)
@@ -684,7 +699,10 @@ const submit = () => {
   submitting.value = true
   router.post(
     route('company.properties.store', props.company.id),
-    form.value,
+    {
+      ...form.value,
+      description_tag_ids: descriptionTags.value.map((t) => t.id),
+    },
     {
       preserveScroll: true,
       onError:   () => { submitting.value = false },

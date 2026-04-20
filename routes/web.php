@@ -16,6 +16,7 @@ use App\Http\Controllers\RentContractController;
 use App\Http\Controllers\PropertyInstallmentController;
 use App\Http\Controllers\PropertyExpenseController;
 use App\Http\Controllers\PropertyReportController;
+use App\Http\Controllers\TagController;
 use App\Http\Controllers\PropertyDashboardController;
 use App\Http\Controllers\CashForecastController;
 use App\Http\Controllers\KeepOrSellController;
@@ -119,6 +120,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // ══════════════════════════════════════════════════════
     Route::prefix('companies/{company}')->name('company.')->group(function () {
 
+        // ── Tags (company-scoped, reusable) ─────────────────────────────
+        Route::get('tags/search', [TagController::class, 'search'])->name('tags.search');
+        Route::post('tags', [TagController::class, 'store'])->name('tags.store');
+
         // ── Properties ─────────────────────────────────────────────────
         // URL:  /companies/{company}/properties/...
         // Name: company.properties.*
@@ -144,6 +149,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
                 Route::delete('/{analysis}',                     [KeepOrSellController::class, 'destroy'])            ->name('destroy');
                 Route::post('/{analysis}/generate-token',        [KeepOrSellController::class, 'generateToken'])      ->name('generate-token');
             });
+            Route::get('/{property}/tags',    [TagController::class, 'forProperty'])->name('tags.index');
+            Route::put('/{property}/tags',    [TagController::class, 'sync'])->name('tags.sync');
             Route::get('/{property}/edit',    [PropertyController::class, 'edit'])->name('edit');
             Route::put('/{property}',         [PropertyController::class, 'update'])->name('update');
             Route::get('/{property}',         [PropertyController::class, 'show'])->name('show');

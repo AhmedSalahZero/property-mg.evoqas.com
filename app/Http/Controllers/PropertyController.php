@@ -7,6 +7,7 @@ use App\Models\Property;
 use App\Models\PropertyUnit;
 use App\Models\PropertyMarketValue;
 use App\Models\PropertyCategory;
+use App\Models\Tag;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -38,6 +39,7 @@ class PropertyController extends Controller
                                                    ->select('id','property_id','property_unit_id','status'),
                 ]),
                 'marketValues' => fn($q) => $q->orderByDesc('value_date')->limit(1),
+                'tags:id,name',
             ])
             ->orderBy('nature')
             ->orderBy('sort_order')
@@ -92,6 +94,8 @@ class PropertyController extends Controller
             'governorate'   => 'nullable|string|max:150',
             'province'      => 'nullable|string|max:150',
             'location'      => 'nullable|string|max:500',
+            'description_tag_ids'   => 'nullable|array',
+            'description_tag_ids.*' => 'integer',
         ]);
 
         // ── Unit-specific financial validation ────────────────────────
@@ -188,6 +192,8 @@ class PropertyController extends Controller
 
         $property = Property::create($propertyData);
 
+        $this->syncPropertyTags($company, $property, $request->input('description_tag_ids', []));
+
         // ── Market values for standalone unit ────────────────────────
         if ($nature === 'unit') {
             foreach ($request->input('market_values', []) as $mv) {
@@ -277,6 +283,7 @@ class PropertyController extends Controller
             'propertyCategory',
             'propertyType',
             'marketValues' => fn($q) => $q->orderBy('value_date'),
+            'tags:id,name',
             'units' => fn($q) => $q->with([
                 'propertyCategory',
                 'propertyType',
@@ -319,6 +326,8 @@ class PropertyController extends Controller
             'governorate'   => 'nullable|string|max:150',
             'province'      => 'nullable|string|max:150',
             'location'      => 'nullable|string|max:500',
+            'description_tag_ids'   => 'nullable|array',
+            'description_tag_ids.*' => 'integer',
         ]);
 
         // ── Unit-specific financial validation ────────────────────────
@@ -393,6 +402,8 @@ class PropertyController extends Controller
         }
 
         $property->update($propertyData);
+
+        $this->syncPropertyTags($company, $property, $request->input('description_tag_ids', []));
 
         // ── Update child units (building / land / complex) ─────────────
         if (in_array($nature, ['building', 'land', 'complex'])) {
@@ -494,6 +505,31 @@ class PropertyController extends Controller
         if (! $user->is_super_admin && $user->company_id !== $company->id) {
             abort(403);
         }
+    }
+
+    /**
+     * @param  array<int, mixed>  $tagIds
+     */
+    private function syncPropertyTags(Company $company, Property $property, array $tagIds): void
+    {
+        $ids = collect($tagIds)
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id > 0)
+            ->unique()
+            ->values();
+
+        if ($ids->isEmpty()) {
+            $property->tags()->sync([]);
+
+            return;
+        }
+
+        $validIds = Tag::query()
+            ->where('company_id', $company->id)
+            ->whereIn('id', $ids)
+            ->pluck('id');
+
+        $property->tags()->sync($validIds);
     }
 
     private function ownershipOptions(): array

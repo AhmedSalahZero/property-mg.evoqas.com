@@ -86,6 +86,11 @@ class Company extends Model
         return $this->hasMany(UserTask::class);
     }
 
+    public function tags()
+    {
+        return $this->hasMany(Tag::class);
+    }
+
     public function kpiDefinitions()
     {
         return $this->hasMany(KpiDefinition::class);

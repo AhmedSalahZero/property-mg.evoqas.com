@@ -389,6 +389,17 @@
             Reports
           </button>
 
+          <!-- Descriptions (tags) -->
+          <button @click="openDescriptionsModal(dropdownProp)"
+            class="dd-item px-4 py-2.5 text-sm"
+            style="color:var(--fv-text-primary,#F1F5F9);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color:#38bdf8;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z"/>
+            </svg>
+            Descriptions
+          </button>
+
           <div style="border-top:1px solid var(--fv-border,#21518B); margin:0.25rem 0;"></div>
 
           <!-- Delete -->
@@ -416,12 +427,19 @@
       @close="showInstallmentModal = false"
     />
 
+    <PropertyDescriptionsModal
+      :show="!!descriptionsModalProperty"
+      :property="descriptionsModalProperty"
+      @close="descriptionsModalProperty = null"
+    />
+
   </AuthenticatedLayout>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import InstallmentModal from '@/Pages/Properties/InstallmentModal.vue'
+import PropertyDescriptionsModal from '@/Components/PropertyDescriptionsModal.vue'
 import { Link, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
@@ -440,6 +458,7 @@ const openDropdown    = ref(null)          // prop.id of open row, or null
 // ── Installment Modal ──────────────────────────────────────────────────
 const showInstallmentModal = ref(false)
 const installmentProperty  = ref(null)
+const descriptionsModalProperty = ref(null)
 const dropdownPos     = ref({ top: 0, left: 0 })
 const openUpward      = ref(false)         // true when dropdown flips above the button
 const btnRefs         = ref({})            // prop.id → <button> element
@@ -614,6 +633,11 @@ const toggleDropdown = (propId) => {
 }
 
 const closeDropdown = () => { openDropdown.value = null; dropdownReady.value = false }
+
+function openDescriptionsModal(prop) {
+  closeDropdown()
+  descriptionsModalProperty.value = prop
+}
 
 // ── Navigate from dropdown ─────────────────────────────────────────────
 const goTo = (section) => {
