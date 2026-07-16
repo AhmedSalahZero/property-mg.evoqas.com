@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Company;
+use App\Services\CompanySubscriptionService;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -13,15 +14,26 @@ class CompanyController extends Controller
     public function index(Request $request)
     {
         abort_unless($request->user()->is_super_admin, 403);
+        $subscriptionService = app(CompanySubscriptionService::class);
 
         // Use get() not paginate() — Index.vue does client-side filtering
         $companies = Company::with('parent')
             ->withCount('users')
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function (Company $company) use ($subscriptionService) {
+                $status = $subscriptionService->status($company);
+
+                return [
+                    ...$company->toArray(),
+                    ...$status,
+                ];
+            });
 
         return Inertia::render('Companies/Index', [
             'companies' => $companies,
+            'warningDays' => (int) config('subscription.warning_days'),
+            'displayDaysPerMonth' => (int) config('subscription.display_days_per_month'),
         ]);
     }
 
@@ -45,6 +57,7 @@ class CompanyController extends Controller
         abort_unless($request->user()->is_super_admin, 403);
 
         $validated = $this->validateCompany($request);
+        $validated = $this->applySubscriptionPayload($validated);
 
         Company::create($validated);
 
@@ -93,6 +106,7 @@ class CompanyController extends Controller
         abort_unless($request->user()->is_super_admin, 403);
 
         $validated = $this->validateCompany($request, $company->id);
+        $validated = $this->applySubscriptionPayload($validated);
 
         $company->update($validated);
 
@@ -165,6 +179,34 @@ class CompanyController extends Controller
             'enabled_modules'     => 'nullable|array',
             'enabled_modules.*'   => ['string', Rule::in(array_keys(Company::MODULES))],
             'is_active'           => 'boolean',
+            'subscription_start_date' => 'nullable|date|required_with:subscription_duration_months',
+            'subscription_duration_months' => [
+                'nullable',
+                'integer',
+                'required_with:subscription_start_date',
+                'min:' . (int) config('subscription.min_duration_months'),
+                'max:' . (int) config('subscription.max_duration_months'),
+            ],
         ]);
+    }
+
+    private function applySubscriptionPayload(array $data): array
+    {
+        $startDate = $data['subscription_start_date'] ?? null;
+        $duration = $data['subscription_duration_months'] ?? null;
+
+        if (!$startDate || !$duration) {
+            $data['subscription_start_date'] = null;
+            $data['subscription_duration_months'] = null;
+            $data['subscription_end_date'] = null;
+
+            return $data;
+        }
+
+        $service = app(CompanySubscriptionService::class);
+        $endDate = $service->calculateEndDate($startDate, (int) $duration);
+        $data['subscription_end_date'] = $endDate->toDateString();
+
+        return $data;
     }
 }

@@ -208,7 +208,46 @@
       </div>
     </div>
 
-    <!-- ── SECTION 5: Contact & Location ─────────────────────────────────────── -->
+    <!-- ── SECTION 5: Subscription ───────────────────────────────────────────── -->
+    <div class="fv-card">
+      <div class="fv-section-header">
+        <div class="fv-section-icon fv-section-icon-navy">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M8 7V3m8 4V3m-9 8h10m-11 9h12a2 2 0 002-2V7a2 2 0 00-2-2H6a2 2 0 00-2 2v11a2 2 0 002 2z"/>
+          </svg>
+        </div>
+        <div>
+          <h2 class="fv-section-title">Subscription</h2>
+          <p class="fv-section-sub">Start date and duration drive automatic end date</p>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-5">
+        <div class="fv-field">
+          <label class="fv-label">Subscription Start Date</label>
+          <input v-model="form.subscription_start_date" type="date" class="fv-input fv-input-styled" />
+          <p v-if="errors.subscription_start_date" class="fv-error">{{ errors.subscription_start_date }}</p>
+        </div>
+        <div class="fv-field">
+          <label class="fv-label">Subscription Duration (Months)</label>
+          <input
+            v-model.number="form.subscription_duration_months"
+            type="number"
+            min="1"
+            class="fv-input fv-input-styled"
+            placeholder="e.g. 12"
+          />
+          <p v-if="errors.subscription_duration_months" class="fv-error">{{ errors.subscription_duration_months }}</p>
+        </div>
+      </div>
+
+      <p v-if="calculatedEndDate" class="text-xs fv-text-muted mt-3">
+        Calculated End Date: <span class="fv-accent-teal font-semibold">{{ calculatedEndDate }}</span>
+      </p>
+    </div>
+
+    <!-- ── SECTION 6: Contact & Location ─────────────────────────────────────── -->
     <div class="fv-card">
       <div class="fv-section-header">
         <div class="fv-section-icon fv-section-icon-teal">
@@ -260,7 +299,7 @@
       </div>
     </div>
 
-    <!-- ── SECTION 6: Notes & Status ─────────────────────────────────────────── -->
+    <!-- ── SECTION 7: Notes & Status ─────────────────────────────────────────── -->
     <div class="fv-card">
       <div class="fv-section-header">
         <div class="fv-section-icon fv-section-icon-gold">
@@ -345,6 +384,20 @@ const modulePercent = computed(() => {
 function toggleAllModules() {
   props.form.enabled_modules = allModulesSelected.value ? [] : Object.keys(props.modules)
 }
+
+const calculatedEndDate = computed(() => {
+  const startDate = props.form.subscription_start_date
+  const durationMonths = Number(props.form.subscription_duration_months)
+
+  if (!startDate || !durationMonths || durationMonths < 1) return null
+
+  const date = new Date(startDate + 'T00:00:00')
+  date.setMonth(date.getMonth() + durationMonths)
+
+  if (Number.isNaN(date.getTime())) return null
+
+  return date.toISOString().slice(0, 10)
+})
 
 const legalStructures = [
   'S.A.E. (Joint Stock)', 'S.A.R.L. (LLC)', 'Branch', 'Holding Company',

@@ -34,6 +34,9 @@ class Company extends Model
         'tax_type',
         'enabled_modules',
         'is_active',
+        'subscription_start_date',
+        'subscription_duration_months',
+        'subscription_end_date',
     ];
 
     // ── Casts ────────────────────────────────────────────────────
@@ -41,6 +44,9 @@ class Company extends Model
         'enabled_modules'  => 'array',
         'established_date' => 'date',
         'is_active'        => 'boolean',
+        'subscription_start_date' => 'date',
+        'subscription_duration_months' => 'integer',
+        'subscription_end_date' => 'date',
     ];
 
     // ── Available Modules ────────────────────────────────────────

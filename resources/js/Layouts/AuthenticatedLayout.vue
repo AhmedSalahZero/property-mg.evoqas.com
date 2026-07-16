@@ -5,6 +5,7 @@ import { useI18n } from 'vue-i18n'
 import { setLocale } from '@/i18n/index.js'
 import Dropdown from '@/Components/Dropdown.vue'
 import DropdownLink from '@/Components/DropdownLink.vue'
+import SubscriptionAlert from '@/Components/SubscriptionAlert.vue'
 
 const { t, locale } = useI18n()
 
@@ -331,6 +332,8 @@ const planningModules = computed(() => [
                 </div>
 
             </nav>
+
+            <SubscriptionAlert />
 
             <!-- ══════════════════════════════════════════════════════
                  BODY: Sidebar + Page Content

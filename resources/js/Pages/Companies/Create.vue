@@ -79,6 +79,9 @@ const form = useForm({
   // Meta
   notes:               '',
   is_active:           true,
+  subscription_start_date: '',
+  subscription_duration_months: null,
+  subscription_end_date: '',
 })
 
 function submit() {

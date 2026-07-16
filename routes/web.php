@@ -20,6 +20,7 @@ use App\Http\Controllers\TagController;
 use App\Http\Controllers\PropertyDashboardController;
 use App\Http\Controllers\CashForecastController;
 use App\Http\Controllers\KeepOrSellController;
+use App\Http\Controllers\CompanySubscriptionStatusController;
 
 // ══════════════════════════════════════════════════════
 // PUBLIC — Welcome / Login redirect
@@ -39,7 +40,7 @@ Route::get('/', function () {
 // ══════════════════════════════════════════════════════
 // AUTHENTICATED ROUTES
 // ══════════════════════════════════════════════════════
-Route::middleware(['auth', 'verified'])->group(function () {
+Route::middleware(['auth', 'verified', 'subscription.active'])->group(function () {
 
     // ── Profile ────────────────────────────────────────
     Route::prefix('profile')->name('profile.')->group(function () {
@@ -54,6 +55,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         auth()->user()->update(['theme' => $theme]);
         return response()->json(['theme' => $theme]);
     })->name('theme.toggle');
+
+    Route::get('/subscription/status', CompanySubscriptionStatusController::class)
+        ->name('subscription.status');
 
     // ══════════════════════════════════════════════════════
     // SUPER ADMIN — Company Management

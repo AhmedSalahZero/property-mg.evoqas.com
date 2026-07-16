@@ -62,6 +62,12 @@
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
           </select>
+          <select v-model="filterSubscription" class="fv-input fv-input-field w-full sm:w-56">
+            <option value="">All Subscriptions</option>
+            <option value="expired">Expired</option>
+            <option value="expiring">Expiring Soon</option>
+            <option value="active">Active</option>
+          </select>
         </div>
 
         <!-- Empty State -->
@@ -125,6 +131,21 @@
               <span v-if="company.tax_type" class="fv-tag-gold">
                 {{ company.tax_type === 'zakat' ? 'Zakat' : 'Corp. Tax' }}
               </span>
+            </div>
+
+            <div class="grid grid-cols-1 gap-1.5 mb-3 text-xs">
+              <div class="flex items-center justify-between">
+                <span class="fv-text-muted">Subscription End Date</span>
+                <span class="fv-text-primary font-semibold">
+                  {{ company.subscription_end_date ?? 'Not set' }}
+                </span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="fv-text-muted">Remaining Time</span>
+                <span :class="remainingTimeClass(company)">
+                  {{ remainingTimeLabel(company) }}
+                </span>
+              </div>
             </div>
 
             <!-- Enabled modules count -->
@@ -222,10 +243,13 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
 const props = defineProps({
   companies: Array,
+  warningDays: { type: Number, default: 30 },
+  displayDaysPerMonth: { type: Number, default: 30 },
 })
 
 const search       = ref('')
 const filterStatus = ref('')
+const filterSubscription = ref('')
 
 const filtered = computed(() =>
   props.companies.filter(c => {
@@ -233,12 +257,35 @@ const filtered = computed(() =>
     if (q && !c.name.toLowerCase().includes(q) && !c.trade_name?.toLowerCase().includes(q)) return false
     if (filterStatus.value === 'active'   && !c.is_active) return false
     if (filterStatus.value === 'inactive' &&  c.is_active) return false
+    if (filterSubscription.value === 'expired' && !c.is_expired) return false
+    if (filterSubscription.value === 'expiring' && !c.is_expiring_soon) return false
+    if (filterSubscription.value === 'active' && (c.is_expired || c.is_expiring_soon)) return false
     return true
   })
 )
 
 function initials(name) {
   return name.split(' ').slice(0, 2).map(w => w[0]).join('').toUpperCase()
+}
+
+function remainingTimeLabel(company) {
+  const remaining = company.remaining_days
+
+  if (remaining === null || remaining === undefined) return 'Not set'
+  if (remaining < 0) return 'Expired'
+  if (remaining <= props.warningDays) return `${remaining} day${remaining === 1 ? '' : 's'}`
+
+  const months = Math.ceil(remaining / props.displayDaysPerMonth)
+  return `${months} month${months === 1 ? '' : 's'}`
+}
+
+function remainingTimeClass(company) {
+  const remaining = company.remaining_days
+
+  if (remaining === null || remaining === undefined) return 'fv-text-muted'
+  if (remaining <= props.warningDays) return 'text-red-400 font-semibold'
+
+  return 'text-emerald-400 font-semibold'
 }
 
 const deleteTarget = ref(null)

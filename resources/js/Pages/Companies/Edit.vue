@@ -53,6 +53,11 @@ const props = defineProps({
   modules: Object,
 })
 
+function toDateInputValue(value) {
+  if (!value) return ''
+  return String(value).slice(0, 10)
+}
+
 const form = useForm({
   // Basic
   name:                props.company.name               ?? '',
@@ -79,6 +84,9 @@ const form = useForm({
   // Meta
   notes:               props.company.notes              ?? '',
   is_active:           props.company.is_active          ?? true,
+  subscription_start_date: toDateInputValue(props.company.subscription_start_date),
+  subscription_duration_months: props.company.subscription_duration_months ?? null,
+  subscription_end_date: toDateInputValue(props.company.subscription_end_date),
 })
 
 function submit() {
