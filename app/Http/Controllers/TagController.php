@@ -6,9 +6,12 @@ use App\Models\Company;
 use App\Models\Property;
 use App\Models\Tag;
 use Illuminate\Http\Request;
+use App\Http\Controllers\Concerns\AuthorizesCompany;
 
 class TagController extends Controller
 {
+    use AuthorizesCompany;
+
     /**
      * Search tags for autocomplete (debounced on the client).
      */
@@ -85,14 +88,6 @@ class TagController extends Controller
             'message' => 'Tags updated.',
             'data' => $property->tags()->get(['tags.id', 'tags.name']),
         ]);
-    }
-
-    private function authorizeCompany(Company $company): void
-    {
-        $user = auth()->user();
-        if (! $user->is_super_admin && $user->company_id !== $company->id) {
-            abort(403);
-        }
     }
 
     private function assertPropertyBelongsToCompany(Company $company, Property $property): void

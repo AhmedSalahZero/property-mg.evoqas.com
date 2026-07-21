@@ -230,6 +230,9 @@
               <p class="fv-text-muted text-sm mb-4">
                 This will permanently delete the contract and all its rent schedules. This cannot be undone.
               </p>
+              <p v-if="deleteModal.error" class="text-xs mb-4 p-2 rounded" style="color:#f87171; background:rgba(239,68,68,0.08);">
+                {{ deleteModal.error }}
+              </p>
               <div class="flex gap-3">
                 <button @click="deleteModal.open = false" class="fv-btn-secondary flex-1 py-2 rounded-lg text-sm">Cancel</button>
                 <button @click="submitDelete"
@@ -320,15 +323,18 @@ function submitTerminate() {
 }
 
 // ── Delete ─────────────────────────────────────────────────────────────
-const deleteModal = ref({ open: false, contract: null })
+const deleteModal = ref({ open: false, contract: null, error: null })
 
-function openDelete(c) { deleteModal.value = { open: true, contract: c } }
+function openDelete(c) { deleteModal.value = { open: true, contract: c, error: null } }
 
 function submitDelete() {
   const c = deleteModal.value.contract
   router.delete(
     route('company.properties.contracts.destroy', [props.company.id, props.property.id, c.id]),
-    { onSuccess: () => { deleteModal.value.open = false } }
+    {
+      onSuccess: () => { deleteModal.value.open = false },
+      onError: (errors) => { deleteModal.value.error = errors.contract ?? 'Could not delete this contract.' },
+    }
   )
 }
 </script>

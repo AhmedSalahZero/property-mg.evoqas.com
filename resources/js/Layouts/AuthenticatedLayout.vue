@@ -92,6 +92,17 @@ function toggleLocale() {
     setLocale(newLocale)
 }
 
+// Supports routeMatch being either a single Ziggy pattern (string) or a list
+// of patterns (array) — needed so two sidebar items whose route names share
+// a prefix (e.g. 'company.reports.index' and 'company.reports.currency-rates.*')
+// don't both light up at the same time.
+function isModuleActive(routeMatch) {
+    if (Array.isArray(routeMatch)) {
+        return routeMatch.some(pattern => route().current(pattern))
+    }
+    return route().current(routeMatch)
+}
+
 function toggleSidebar() {
     sidebarExpanded.value = !sidebarExpanded.value
     localStorage.setItem('fv_sidebar', sidebarExpanded.value ? 'expanded' : 'collapsed')
@@ -111,7 +122,33 @@ const analysisModules = computed(() => [
         routeMatch: 'company.properties.index',
         icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>`
     },
-     
+    {
+        label: 'Corporate Expenses',
+        route: 'company.properties.corporate-expenses.index',
+        routeMatch: 'company.properties.corporate-expenses.*',
+        icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 21h18M5 21V7l8-4v18M13 21V11l6 3v7M9 9v.01M9 12v.01M9 15v.01"/>`
+    },
+    {
+        label: 'Reports',
+        route: 'company.reports.index',
+        routeMatch: [
+            'company.reports.index',
+            'company.reports.tenant-ledger',
+            'company.reports.rent-collections',
+            'company.reports.installments',
+            'company.reports.annual-summary',
+            'company.reports.rent-benchmark',
+            'company.reports.expense-report',
+            'company.reports.custom.*',
+        ],
+        icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 17V7m4 10V11m4 6V5M5 21h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z"/>`
+    },
+    {
+        label: 'Exchange Rates',
+        route: 'company.reports.currency-rates.index',
+        routeMatch: 'company.reports.currency-rates.*',
+        icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M7 16V4m0 0L3 8m4-4l4 4m6 4v12m0 0l4-4m-4 4l-4-4"/>`
+    },
 ])
 
 const planningModules = computed(() => [
@@ -127,6 +164,18 @@ const planningModules = computed(() => [
         routeMatch: 'company.properties.keep-or-sell*',
         icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/>`
     },
+    {
+        label: 'Investment Decision',
+        route: 'company.properties.investment-decision.index',
+        routeMatch: 'company.properties.investment-decision*',
+        icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m0-12a9 9 0 100 18 9 9 0 000-18z"/>`
+    },
+])
+
+// Moved here from Planning (July 2026) — Projects & Tasks and Statistica
+// are general-purpose tools rather than property-planning workflows, so
+// they belong alongside Loan Calculator in the Tools group.
+const toolsModules = computed(() => [
     {
         label: 'Projects & Tasks',
         route: 'company.projects.index',
@@ -311,14 +360,18 @@ const planningModules = computed(() => [
                             <Link v-for="m in analysisModules" :key="m.route"
                                 :href="route(m.route, activeCompanyId)"
                                 class="fv-mobile-link"
-                                :class="route().current(m.routeMatch) ? 'fv-mobile-link-active' : ''">{{ m.label }}</Link>
+                                :class="isModuleActive(m.routeMatch) ? 'fv-mobile-link-active' : ''">{{ m.label }}</Link>
                             <div class="pt-2 pb-1 px-3 text-xs font-semibold uppercase tracking-widest" style="color: #1490A8;">Planning</div>
                             <Link v-for="m in planningModules" :key="m.route"
                                 :href="route(m.route, activeCompanyId)"
                                 class="fv-mobile-link"
-                                :class="route().current(m.routeMatch) ? 'fv-mobile-link-active' : ''">{{ m.label }}</Link>
+                                :class="isModuleActive(m.routeMatch) ? 'fv-mobile-link-active' : ''">{{ m.label }}</Link>
                             <div class="pt-2 pb-1 px-3 text-xs font-semibold uppercase tracking-widest" style="color: #26C6DA;">Tools</div>
                             <Link :href="route('loan-engine.index')" class="fv-mobile-link" :class="route().current('loan-engine.*') ? 'fv-mobile-link-active' : ''">Loan Calculator</Link>
+                            <Link v-for="m in toolsModules" :key="m.route"
+                                :href="route(m.route, activeCompanyId)"
+                                class="fv-mobile-link"
+                                :class="isModuleActive(m.routeMatch) ? 'fv-mobile-link-active' : ''">{{ m.label }}</Link>
                             <div class="border-t my-1" style="border-color: var(--fv-border);"></div>
                             <Link :href="route('company.settings.index', activeCompanyId)" class="fv-mobile-link">⚙ Settings</Link>
                         </template>
@@ -359,7 +412,7 @@ const planningModules = computed(() => [
                         <Link v-for="mod in analysisModules" :key="mod.route"
                             :href="route(mod.route, activeCompanyId)"
                             :title="!sidebarExpanded ? mod.label : ''"
-                            :class="['fv-sidebar-link', route().current(mod.routeMatch) ? 'fv-sidebar-active' : '',
+                            :class="['fv-sidebar-link', isModuleActive(mod.routeMatch) ? 'fv-sidebar-active' : '',
                                 sidebarExpanded ? 'px-3' : 'px-0 justify-center']">
                             <svg class="flex-shrink-0 w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" v-html="mod.icon"></svg>
                             <span v-if="sidebarExpanded" class="truncate">{{ mod.label }}</span>
@@ -378,7 +431,7 @@ const planningModules = computed(() => [
                         <Link v-for="mod in planningModules" :key="mod.route"
                             :href="route(mod.route, activeCompanyId)"
                             :title="!sidebarExpanded ? mod.label : ''"
-                            :class="['fv-sidebar-link', route().current(mod.routeMatch) ? 'fv-sidebar-active' : '',
+                            :class="['fv-sidebar-link', isModuleActive(mod.routeMatch) ? 'fv-sidebar-active' : '',
                                 sidebarExpanded ? 'px-3' : 'px-0 justify-center']">
                             <svg class="flex-shrink-0 w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" v-html="mod.icon"></svg>
                             <span v-if="sidebarExpanded" class="truncate">{{ mod.label }}</span>
@@ -406,6 +459,16 @@ const planningModules = computed(() => [
                                     d="M9 7H7a2 2 0 00-2 2v9a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01"/>
                             </svg>
                             <span v-if="sidebarExpanded">Loan Calculator</span>
+                        </Link>
+
+                        <!-- Moved here from Planning (July 2026) -->
+                        <Link v-for="mod in toolsModules" :key="mod.route"
+                            :href="route(mod.route, activeCompanyId)"
+                            :title="!sidebarExpanded ? mod.label : ''"
+                            :class="['fv-sidebar-link', isModuleActive(mod.routeMatch) ? 'fv-sidebar-active' : '',
+                                sidebarExpanded ? 'px-3' : 'px-0 justify-center']">
+                            <svg class="flex-shrink-0 w-[18px] h-[18px]" fill="none" stroke="currentColor" viewBox="0 0 24 24" v-html="mod.icon"></svg>
+                            <span v-if="sidebarExpanded" class="truncate">{{ mod.label }}</span>
                         </Link>
 
                     </div>

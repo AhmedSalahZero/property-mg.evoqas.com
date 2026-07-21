@@ -28,6 +28,47 @@ class ProjectController extends Controller
         return $company;
     }
 
+    /**
+     * Fix — getCompany() above only confirms the acting user belongs to
+     * {company}. It never confirmed that {project} (a plain int route
+     * segment, not model-bound, so Laravel applies no automatic scoping)
+     * actually belongs to that same company. A user could pass their own
+     * valid company ID to satisfy getCompany(), while supplying another
+     * company's project ID, and read/edit/delete it — the same class of
+     * gap already fixed elsewhere in this app (see audit finding C-2).
+     * Returns the project row so callers that need it don't have to query
+     * twice. 404 (not 403) so a mismatched ID doesn't confirm to an
+     * attacker that the project exists at all, just elsewhere.
+     */
+    private function authorizeProject(int $companyId, int $projectId): object
+    {
+        $project = DB::table('projects')
+            ->where('id', $projectId)
+            ->where('company_id', $companyId)
+            ->first();
+
+        abort_unless($project, 404);
+
+        return $project;
+    }
+
+    /**
+     * Same check one level deeper — confirms {task} belongs to {project}.
+     * Call authorizeProject() first; this trusts $projectId is already
+     * verified to belong to the company.
+     */
+    private function authorizeTask(int $projectId, int $taskId): object
+    {
+        $task = DB::table('project_tasks')
+            ->where('id', $taskId)
+            ->where('project_id', $projectId)
+            ->first();
+
+        abort_unless($task, 404);
+
+        return $task;
+    }
+
     /** Build full project data including tasks, assignees, logs, expenses */
     private function buildProjectDetail(int $projectId): array
     {
@@ -271,6 +312,7 @@ class ProjectController extends Controller
     public function update(Request $request, int $company, int $project)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
 
         $data = $request->validate([
             'name'        => 'required|string|max:255',
@@ -282,7 +324,8 @@ class ProjectController extends Controller
             'currency'    => 'nullable|string|max:10',
         ]);
 
-        DB::table('projects')->where('id', $project)->update(array_merge($data, ['updated_at' => now()]));
+        DB::table('projects')->where('id', $project)->where('company_id', $company)
+            ->update(array_merge($data, ['updated_at' => now()]));
 
         return response()->json(['success' => true]);
     }
@@ -293,6 +336,7 @@ class ProjectController extends Controller
     public function destroy(int $company, int $project)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
         DB::table('projects')->where('id', $project)->where('company_id', $company)->delete();
         return response()->json(['success' => true]);
     }
@@ -303,6 +347,7 @@ class ProjectController extends Controller
     public function storeTask(Request $request, int $company, int $project)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
 
         $data = $request->validate([
             'name'               => 'required|string|max:255',
@@ -356,6 +401,8 @@ class ProjectController extends Controller
     public function updateTask(Request $request, int $company, int $project, int $task)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
+        $this->authorizeTask($project, $task);
 
         $data = $request->validate([
             'name'               => 'required|string|max:255',
@@ -371,7 +418,7 @@ class ProjectController extends Controller
             'assignee_ids.*'     => 'exists:users,id',
         ]);
 
-        DB::table('project_tasks')->where('id', $task)->update([
+        DB::table('project_tasks')->where('id', $task)->where('project_id', $project)->update([
             'name'               => $data['name'],
             'description'        => $data['description'] ?? null,
             'priority'           => $data['priority'],
@@ -404,6 +451,7 @@ class ProjectController extends Controller
     public function destroyTask(int $company, int $project, int $task)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
         DB::table('project_tasks')->where('id', $task)->where('project_id', $project)->delete();
         return response()->json(['success' => true]);
     }
@@ -414,6 +462,8 @@ class ProjectController extends Controller
     public function storeLog(Request $request, int $company, int $project, int $task)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
+        $this->authorizeTask($project, $task);
 
         $data = $request->validate([
             'log_date'     => 'required|date',
@@ -431,7 +481,7 @@ class ProjectController extends Controller
 
         // Update task progress if provided
         if (!empty($data['progress_pct'])) {
-            DB::table('project_tasks')->where('id', $task)
+            DB::table('project_tasks')->where('id', $task)->where('project_id', $project)
                 ->update(['progress_pct' => $data['progress_pct'], 'updated_at' => now()]);
         }
 
@@ -444,6 +494,8 @@ class ProjectController extends Controller
     public function destroyLog(int $company, int $project, int $task, int $log)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
+        $this->authorizeTask($project, $task);
         DB::table('project_task_logs')->where('id', $log)->where('project_task_id', $task)->delete();
         return response()->json(['success' => true]);
     }
@@ -454,6 +506,7 @@ class ProjectController extends Controller
     public function storeExpense(Request $request, int $company, int $project)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
 
         $data = $request->validate([
             'category'        => 'required|in:consultant,freelancer,legal,accounting,software,saas_subscription,hardware,purchase,raw_materials,travel,accommodation,marketing,training,government_fees,bank_charges,insurance,maintenance,logistics,other',
@@ -491,11 +544,13 @@ class ProjectController extends Controller
     public function destroyExpense(int $company, int $project, int $expense)
     {
         $this->getCompany($company);
-        $exp = DB::table('project_expenses')->where('id', $expense)->first();
-        if ($exp && $exp->receipt_path) {
+        $this->authorizeProject($company, $project);
+        $exp = DB::table('project_expenses')->where('id', $expense)->where('project_id', $project)->first();
+        abort_unless($exp, 404);
+        if ($exp->receipt_path) {
             Storage::disk('local')->delete($exp->receipt_path);
         }
-        DB::table('project_expenses')->where('id', $expense)->delete();
+        DB::table('project_expenses')->where('id', $expense)->where('project_id', $project)->delete();
         return response()->json(['success' => true]);
     }
 
@@ -514,7 +569,19 @@ class ProjectController extends Controller
             'rates.*.currency'   => 'nullable|string|max:10',
         ]);
 
+        // Fix — 'exists:users,id' above only confirms the user_id exists
+        // SOMEWHERE, not that it belongs to this company. The composite
+        // upsert key below (user_id + company_id) already prevented this
+        // from ever touching another company's existing cost-rate row, but
+        // it could still silently create a nonsensical rate row pairing a
+        // foreign user with this company. Filter those out instead.
+        $companyUserIds = DB::table('users')->where('company_id', $company)->pluck('id')->all();
+
         foreach ($data['rates'] as $rate) {
+            if (!in_array((int) $rate['user_id'], $companyUserIds, true)) {
+                continue;
+            }
+
             DB::table('user_cost_rates')->updateOrInsert(
                 ['user_id' => $rate['user_id'], 'company_id' => $company],
                 [
@@ -536,6 +603,7 @@ class ProjectController extends Controller
     public function reorderTasks(Request $request, int $company, int $project)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
 
         $data = $request->validate([
             'order'   => 'required|array',
@@ -543,7 +611,12 @@ class ProjectController extends Controller
         ]);
 
         foreach ($data['order'] as $index => $taskId) {
-            DB::table('project_tasks')->where('id', $taskId)
+            // Fix — scope every reorder write to this project, so a task ID
+            // belonging to another company's project can't be silently
+            // reordered just because it happened to be included in the
+            // submitted list ('exists:project_tasks,id' above only checks
+            // the ID exists somewhere, not that it belongs here).
+            DB::table('project_tasks')->where('id', $taskId)->where('project_id', $project)
                 ->update(['order' => $index, 'updated_at' => now()]);
         }
 
@@ -556,6 +629,7 @@ class ProjectController extends Controller
     public function refresh(int $company, int $project)
     {
         $this->getCompany($company);
+        $this->authorizeProject($company, $project);
         return response()->json($this->buildProjectDetail($project));
     }
 }

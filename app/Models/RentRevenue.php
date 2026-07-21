@@ -15,6 +15,9 @@ class RentRevenue extends Model
         'monthly_rent',
         'revenue_amount',
         'currency',
+        'base_amount',
+        'base_currency',
+        'fx_rate_used',
         'year_number',
     ];
 
@@ -22,6 +25,8 @@ class RentRevenue extends Model
         'revenue_date'   => 'date',
         'monthly_rent'   => 'decimal:2',
         'revenue_amount' => 'decimal:2',
+        'base_amount'    => 'decimal:2',
+        'fx_rate_used'   => 'decimal:6',
         'year_number'    => 'integer',
     ];
 

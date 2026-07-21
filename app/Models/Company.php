@@ -50,11 +50,18 @@ class Company extends Model
     ];
 
     // ── Available Modules ────────────────────────────────────────
+    // Fix for audit finding M-2 — 'sales_analysis', 'expenses_analysis',
+    // and 'profitability' used to be listed here as toggleable modules on
+    // the super-admin "Company Modules" screen, even though the features
+    // behind them (Excel-upload-based Sales Analysis / Expense Analysis /
+    // Profitability) were permanently removed in the April 2026 cleanup
+    // session, along with their database tables. A super-admin could still
+    // enable/disable a module that no longer does anything. Note this is
+    // unrelated to the Property Dashboard's own "Profitability" tab, which
+    // is a different, current, fully working feature that isn't gated by
+    // this module list at all (see PropertyDashboardController).
     public const MODULES = [
         'contract_analysis'    => 'Contract Analysis',
-        'sales_analysis'       => 'Sales Analysis',
-        'expenses_analysis'    => 'Expenses Analysis',
-        'profitability'        => 'Profitability Analysis',
         // 'financial_statements' => 'Financial Statements', //to be postponded//
         // 'kpis'                 => 'KPI Dashboard', //to be postponded//
         'financial_studies'    => 'Financial Studies',

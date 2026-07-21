@@ -1,0 +1,37 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class CustomReport extends Model
+{
+    protected $fillable = [
+        'company_id',
+        'created_by',
+        'name',
+        'data_source',
+        'dimensions',
+        'measures',
+        'filters',
+        'last_run_at',
+    ];
+
+    protected $casts = [
+        'dimensions'  => 'array',
+        'measures'    => 'array',
+        'filters'     => 'array',
+        'last_run_at' => 'datetime',
+    ];
+
+    public function company(): BelongsTo
+    {
+        return $this->belongsTo(Company::class);
+    }
+
+    public function creator(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'created_by');
+    }
+}

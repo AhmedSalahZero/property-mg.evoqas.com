@@ -17,6 +17,8 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function index(Request $request, $companyId)
     {
+        $this->authorizeCompanyId($companyId);
+
         $analyses = KeepOrSellAnalysis::where('company_id', $companyId)
             ->with(['property:id,property_name,nature', 'propertyUnit:id,unit_name', 'createdBy:id,name'])
             ->orderByDesc('created_at')
@@ -56,19 +58,29 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function unitData(Request $request, $companyId)
     {
+        $this->authorizeCompanyId($companyId);
+
         $propertyId = $request->property_id;
         $unitId     = $request->unit_id ?? null;
 
-        // Market value — latest entry
-        $mv = DB::table('property_market_values')
+        // Market value — latest entry (base_amount now read directly off
+        // the stored column — see propertyValuationConversion() fix below).
+        $mvRow = DB::table('property_market_values')
             ->where('company_id', $companyId)
             ->where('property_id', $propertyId)
             ->when($unitId, fn($q) => $q->where('property_unit_id', $unitId))
             ->when(!$unitId, fn($q) => $q->whereNull('property_unit_id'))
             ->orderByDesc('value_date')
-            ->value('market_value');
+            ->first(['market_value', 'base_amount']);
 
         // Running rent contracts for this unit
+        // Fix for audit M3 — previously had no explicit ordering, so if a
+        // data-entry mistake ever left two "running" contracts on the same
+        // slot, contracts[0] on the frontend (used as the baseline for every
+        // future-year rent projection) was whatever order MySQL happened to
+        // return, which isn't guaranteed to be stable. Ordering by the most
+        // recently started contract first makes the choice deterministic and
+        // matches what a user would expect as "the current contract."
         $contracts = DB::table('rent_contracts as rc')
             ->join('customers as c', 'c.id', '=', 'rc.customer_id')
             ->where('rc.company_id', $companyId)
@@ -86,6 +98,8 @@ class KeepOrSellController extends Controller
                 'rc.contract_currency',
                 'c.customer_name as tenant_name'
             )
+            ->orderByDesc('rc.start_date')
+            ->orderByDesc('rc.id')
             ->get();
 
         // Total contracted revenue from rent_revenues
@@ -98,7 +112,7 @@ class KeepOrSellController extends Controller
             ->where('rc.status', 'running')
             ->select(
                 DB::raw('YEAR(rr.revenue_date) as yr'),
-                DB::raw('SUM(rr.revenue_amount) as total_revenue')
+                DB::raw('SUM(rr.base_amount) as total_revenue')
             )
             ->groupBy(DB::raw('YEAR(rr.revenue_date)'))
             ->orderBy(DB::raw('YEAR(rr.revenue_date)'))
@@ -111,7 +125,7 @@ class KeepOrSellController extends Controller
             ->where('pe.property_id', $propertyId)
             ->select(
                 DB::raw('YEAR(pep.payment_date) as yr'),
-                DB::raw('SUM(pep.amount) as total_expense')
+                DB::raw('SUM(pep.base_amount) as total_expense')
             )
             ->groupBy(DB::raw('YEAR(pep.payment_date)'))
             ->orderBy(DB::raw('YEAR(pep.payment_date)'))
@@ -134,7 +148,7 @@ class KeepOrSellController extends Controller
                 ->whereIn('status', ['pending', 'overdue'])
                 ->select(
                     DB::raw('YEAR(due_date) as yr'),
-                    DB::raw('SUM(amount) as total_due')
+                    DB::raw('SUM(base_amount) as total_due')
                 )
                 ->groupBy(DB::raw('YEAR(due_date)'))
                 ->orderBy(DB::raw('YEAR(due_date)'))
@@ -146,12 +160,61 @@ class KeepOrSellController extends Controller
             }
         }
 
-        $acquisitionCost = $unit ? ($unit->acquisition_cost ?? 0) : ($property->acquisition_cost ?? 0);
+        $acquisitionCost         = (float) ($unit ? ($unit->acquisition_cost ?? 0) : ($property->acquisition_cost ?? 0));
+        $acquisitionCostBase     = $unit ? $unit->acquisition_cost_base_amount : $property->acquisition_cost_base_amount;
+        $marketValueRaw          = $mvRow?->market_value !== null ? (float) $mvRow->market_value : null;
+        $marketValueBase         = $mvRow?->base_amount;
+        $valuationCurrency       = strtoupper($unit ? ($unit->currency ?? 'EGP') : ($property->currency ?? 'EGP'));
+        $baseCurrency            = strtoupper(\App\Models\Company::where('id', $companyId)->value('currency') ?: 'EGP');
+
+        // Fix for audit Finding 1 (Keep-or-Sell currency mismatch), refined
+        // by Findings 3/4 — every other figure returned by this endpoint
+        // (revenue_by_year, expense_by_year, installment_by_year) is
+        // already converted to the company's base currency via base_amount
+        // (fix C4), but market_value/acquisition_cost used to be returned
+        // raw in the property/unit's own currency. Since the compute()
+        // engine treats every numeric input as already being in one common
+        // currency, a foreign-currency property's market value was
+        // silently mixed with base-currency revenue/expense figures in the
+        // same NPV/IRR formula.
+        //
+        // These now come straight off the properties/property_units/
+        // property_market_values.*_base_amount columns (migration
+        // 2026_07_15_000001_add_base_currency_columns_to_property_valuation_tables),
+        // computed once at write time by PropertyController — the exact
+        // same stored values PropertyDashboardController::perPropertyFinancials()
+        // reads for the Portfolio tab, so the two screens can never
+        // disagree on a property's converted value again. If a rate wasn't
+        // on file when the record was saved, the stored base_amount is
+        // null and `valuation_fx_missing` is set so the frontend can warn
+        // the analyst instead of silently proceeding with an unconverted
+        // number — running `php artisan property:backfill-valuation-fx`
+        // after adding the missing rate fills these in retroactively.
+        $needsRate            = $valuationCurrency !== $baseCurrency;
+        $marketValueConverted = $needsRate ? ($marketValueBase !== null ? (float) $marketValueBase : null) : $marketValueRaw;
+        $acquisitionConverted = $needsRate ? ($acquisitionCostBase !== null ? (float) $acquisitionCostBase : null) : $acquisitionCost;
+        $valuationFxMissing   = $needsRate && ($marketValueRaw !== null && $marketValueConverted === null
+                                    || $acquisitionCost > 0 && $acquisitionConverted === null);
 
         return response()->json([
-            'market_value'                => $mv ? (float) $mv : null,
-            'acquisition_cost'            => (float) $acquisitionCost,
+            // market_value / acquisition_cost are now in the company's base
+            // currency, matching revenue_by_year / expense_by_year /
+            // installment_by_year below — the compute() engine can add,
+            // subtract, and discount all of these together safely.
+            'market_value'                => $marketValueConverted,
+            'acquisition_cost'            => $acquisitionConverted,
+            // Original, unconverted figures + the source currency — kept so
+            // the frontend can show the analyst what was actually on file
+            // for this property ("Market Value: 5,000,000 EGP — converted
+            // from 100,000 USD at rate 50.00").
+            'market_value_original'       => $marketValueRaw,
+            'acquisition_cost_original'   => $acquisitionCost,
+            'valuation_currency'          => $valuationCurrency,
+            'valuation_fx_missing'        => $valuationFxMissing,
             'contracts'                   => $contracts,
+            // revenue_by_year / expense_by_year / installment_by_year ARE now
+            // converted to the company's base currency (fix C4), so the
+            // Keep-or-Sell projection engine never silently mixes currencies.
             'revenue_by_year'             => $revenueByYear,
             'expense_by_year'             => $expenseByYear,
             'installment_by_year'         => $installmentByYear,
@@ -159,7 +222,8 @@ class KeepOrSellController extends Controller
             'ownership'                   => $ownership,
             'property_name'               => $property->property_name ?? '',
             'unit_name'                   => $unit->unit_name ?? null,
-            'currency'                    => $unit ? ($unit->currency ?? 'EGP') : ($property->currency ?? 'EGP'),
+            'currency'                    => $baseCurrency,
+            'base_currency'               => $baseCurrency,
         ]);
     }
 
@@ -168,6 +232,8 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function compute(Request $request, $companyId)
     {
+        $this->authorizeCompanyId($companyId);
+
         $data = $request->validate([
             'property_id'              => 'required|integer',
             'property_unit_id'         => 'nullable|integer',
@@ -198,6 +264,8 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function store(Request $request, $companyId)
     {
+        $this->authorizeCompanyId($companyId);
+
         $data = $request->validate([
             'property_id'              => 'required|integer',
             'property_unit_id'         => 'nullable|integer',
@@ -254,6 +322,8 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function updateRecommendation(Request $request, $companyId, $id)
     {
+        $this->authorizeCompanyId($companyId);
+
         $analysis = KeepOrSellAnalysis::where('company_id', $companyId)->findOrFail($id);
         $analysis->update(['analyst_recommendation' => $request->analyst_recommendation]);
         return response()->json(['saved' => true]);
@@ -264,6 +334,8 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function destroy($companyId, $id)
     {
+        $this->authorizeCompanyId($companyId);
+
         KeepOrSellAnalysis::where('company_id', $companyId)->findOrFail($id)->delete();
         return response()->json(['deleted' => true]);
     }
@@ -273,6 +345,8 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function generateToken($companyId, $id)
     {
+        $this->authorizeCompanyId($companyId);
+
         $analysis = KeepOrSellAnalysis::where('company_id', $companyId)->findOrFail($id);
         $token = Str::random(48);
         $analysis->update([
@@ -291,6 +365,19 @@ class KeepOrSellController extends Controller
             ->with(['property:id,property_name,nature', 'propertyUnit:id,unit_name', 'company:id,name,trade_name,currency'])
             ->firstOrFail();
 
+        // Fix for audit finding C-3 — share links used to work forever once
+        // generated, with no expiry check anywhere. Expire 90 days after the
+        // token was (re)generated; regenerating the token via generateToken()
+        // resets this clock. A stale token now 404s instead of staying valid
+        // indefinitely.
+        $expiresAfterDays = 90;
+        if (
+            $analysis->share_token_created_at === null
+            || $analysis->share_token_created_at->lt(now()->subDays($expiresAfterDays))
+        ) {
+            abort(404);
+        }
+
         return Inertia::render('Properties/KeepOrSell/Share', [
             'analysis' => $this->formatForShare($analysis),
         ]);
@@ -301,6 +388,8 @@ class KeepOrSellController extends Controller
     // ══════════════════════════════════════════════════════
     public function show($companyId, $id)
     {
+        $this->authorizeCompanyId($companyId);
+
         $analysis = KeepOrSellAnalysis::where('company_id', $companyId)
             ->with(['property:id,property_name,nature', 'propertyUnit:id,unit_name'])
             ->findOrFail($id);
@@ -547,5 +636,27 @@ class KeepOrSellController extends Controller
             'analyst_recommendation' => $a->analyst_recommendation,
             'created_at'             => $a->created_at->format('d M Y'),
         ];
+    }
+
+    // ══════════════════════════════════════════════════════
+    // Fix for audit finding C-1 — this controller previously had NO check
+    // anywhere that the logged-in user actually belongs to the $companyId
+    // taken straight from the URL, unlike every other company-scoped
+    // controller in the app. Any authenticated user could view, edit,
+    // delete, or mint a public share link for another company's
+    // confidential Keep-or-Sell investment analysis just by editing the
+    // company ID in the address bar. Deliberately takes a plain
+    // int/string (not a route-bound Company model, since this controller's
+    // methods use $companyId as a raw scalar throughout) so it can be
+    // called the same way in every method below. NOT called from share()
+    // — that endpoint is intentionally public/token-based (see the C-3
+    // expiry fix on that method instead).
+    // ══════════════════════════════════════════════════════
+    private function authorizeCompanyId($companyId): void
+    {
+        $user = auth()->user();
+        if (! $user->is_super_admin && (int) $user->company_id !== (int) $companyId) {
+            abort(403);
+        }
     }
 }

@@ -77,7 +77,7 @@
           <option value="fully_owned">Fully Owned</option>
           <option value="installments">With Installments</option>
           <option value="usufruct">Usufruct</option>
-          <option value="managed">Managed</option>
+          <option value="managed">Managed For Others</option>
         </select>
 
         <div class="relative flex-1" style="min-width:12rem; max-width:22rem;">
@@ -519,7 +519,7 @@ const natureColor = (n) => ({ unit:'#1490A8', building:'#BA7517', land:'#14b8a6'
 
 const ownershipLabel = (o) => ({
   fully_owned:'Fully Owned', installments:'With Installments',
-  usufruct:'Usufruct', managed:'Managed',
+  usufruct:'Usufruct', managed:'Managed For Others',
 }[o] || o)
 
 // ── Status helpers ─────────────────────────────────────────────────────

@@ -22,8 +22,26 @@
         </p>
       </div>
 
+      <!-- Locked banner — contract has collected rent payments on record -->
+      <div v-if="isLocked" class="fv-card mb-6 flex items-start gap-3" style="border-color:#f87171; background:rgba(239,68,68,0.06);">
+        <svg class="w-5 h-5 flex-shrink-0 mt-0.5" style="color:#f87171" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/>
+        </svg>
+        <p class="text-sm" style="color:#f87171">
+          This contract has collected rent payments on record and cannot be edited.
+          Delete the collected rows first (Rent Collections tab) if you need to edit this contract.
+        </p>
+      </div>
+
+      <!-- Same message, shown if the server rejects the save for this reason
+           even when the banner above wasn't showing (e.g. collected rows
+           were added in another tab after this page loaded). -->
+      <div v-if="errors.contract" class="fv-card mb-6" style="border-color:#f87171; background:rgba(239,68,68,0.06);">
+        <p class="text-sm" style="color:#f87171">{{ errors.contract }}</p>
+      </div>
+
       <form @submit.prevent="submit">
-        <div class="max-w-3xl space-y-6">
+        <fieldset :disabled="isLocked" class="max-w-3xl space-y-6" style="border:none; padding:0; margin:0; min-width:0;">
 
           <!-- Revenue Type -->
           <div class="fv-card">
@@ -41,16 +59,19 @@
               </button>
             </div>
 
-            <!-- Management Fee Rate -->
+            <!-- Management Fee Revenue Rate -->
             <div v-if="form.revenue_type === 'management_fee'" class="mt-4">
               <label class="fv-text-label text-xs font-semibold uppercase tracking-wider block mb-1">
-                Management Fee Rate (%) *
+                Management Fee Revenue Rate (%) *
               </label>
               <input type="number" v-model="form.management_fee_rate"
                 min="0" max="100" step="0.01"
                 class="fv-input rounded-lg px-3 py-2 text-sm w-48"
                 placeholder="e.g. 10"/>
-              <p class="fv-text-muted text-xs mt-1">Fee collected = Monthly Rent × this rate</p>
+              <p class="fv-text-muted text-xs mt-1">
+                This unit is owned by someone else — you earn Rent × this rate as your only revenue and collection.
+                The full rent is settled directly between tenant and owner, so a Management Fees Expense does not apply here.
+              </p>
             </div>
           </div>
 
@@ -154,6 +175,21 @@
                   placeholder="0.00"/>
                 <p class="fv-text-muted text-xs mt-1">If set, overrides Monthly Rent as the basis for all calculations.</p>
               </div>
+              <div v-if="form.contract_currency !== baseCurrency">
+                <label class="fv-text-label text-xs font-semibold uppercase tracking-wider block mb-1">
+                  FX Rate at Signing (1 {{ form.contract_currency }} = ? {{ baseCurrency }})
+                </label>
+                <input type="number" v-model="form.fx_rate"
+                  min="0.000001" step="0.000001"
+                  class="fv-input rounded-lg px-3 py-2 text-sm w-full"
+                  :placeholder="`e.g. 48.50`"/>
+                <p class="fv-text-muted text-xs mt-1">
+                  Saves this as today's exchange rate for {{ form.contract_currency }} in your Exchange
+                  Rates table — the same one the Dashboard and Cash Forecast read from. Updating the
+                  rate later (Company Settings → Exchange Rates) is what moves future reporting; this
+                  field just saves you re-typing it now.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -168,7 +204,9 @@
                 </select>
                 <p v-if="form.collection_currency !== form.contract_currency" class="fv-text-muted text-xs mt-1"
                   style="color:var(--fv-gold)">
-                  ⚠ Different from contract currency — FX from Statistica will be applied at reporting time.
+                  ⚠ Different from contract currency — collections (and the insurance deposit below)
+                  will be converted to {{ form.collection_currency }} using the latest rate in your
+                  Exchange Rates table.
                 </p>
               </div>
               <div>
@@ -193,9 +231,14 @@
                 </label>
                 <div class="fv-input rounded-lg px-3 py-2 text-sm w-full fv-text-muted"
                   style="background:var(--fv-bg-input);border:1px solid var(--fv-border)">
-                  {{ formatMoney(insuranceAmountCalc) }} {{ form.contract_currency }}
+                  {{ formatMoney(insuranceAmountCalc) }} {{ form.collection_currency }}
                 </div>
-                <p class="fv-text-muted text-xs mt-1">Rent Basis × Insurance Months</p>
+                <p class="fv-text-muted text-xs mt-1">
+                  Rent Basis × Insurance Months, in the <strong>collection</strong> currency (the deposit
+                  is real cash collected alongside the rent). Preview here is unconverted if collection
+                  currency differs from contract currency — the exact converted amount is calculated
+                  when you save, using the latest exchange rate on file.
+                </p>
               </div>
             </div>
           </div>
@@ -237,9 +280,14 @@
             </div>
           </div>
 
-          <!-- Management Fees Expense -->
-          <div class="fv-card">
+          <!-- Management Fees Expense — only applies when the company owns the unit itself (Direct Rent).
+               Not applicable when revenue_type = management_fee, since in that case the company
+               doesn't own the rent stream at all — it only earns the Management Fee Revenue above. -->
+          <div v-if="form.revenue_type !== 'management_fee'" class="fv-card">
             <h2 class="text-sm font-bold fv-text-label uppercase tracking-wider mb-4">Management Fees Expense</h2>
+            <p class="fv-text-muted text-xs mb-3">
+              Use this only if you own this unit and pay an outside party to manage it for you.
+            </p>
 
             <label class="flex items-center gap-2 cursor-pointer">
               <input
@@ -317,7 +365,7 @@
             </button>
           </div>
 
-        </div>
+        </fieldset>
       </form>
 
     </div>
@@ -337,9 +385,19 @@ const props = defineProps({
   intervalOptions: Array,
   renewedFrom:     Object,     // for renewal
   contract:        Object,     // ← NEW: for edit mode (null when creating)
+  baseCurrency:    { type: String, default: 'EGP' },
+  hasCollectedHistory: { type: Boolean, default: false },
 })
 
 const isEdit = computed(() => !!props.contract)
+
+// Confirmed product decision — a contract with any 'collected' row is
+// locked for editing entirely, every field, since any save regenerates the
+// whole revenue/collection schedule. The user has to delete the collected
+// rows first (Rent Collections tab on the Show page) before this form will
+// accept changes. This is enforced again server-side in
+// RentContractController::update() regardless of what this flag does here.
+const isLocked = computed(() => isEdit.value && props.hasCollectedHistory)
 
 const revenueTypes = [
   { value: 'direct_rent',    label: 'Direct Rent',       desc: 'You own the unit and collect rent directly' },
@@ -367,6 +425,7 @@ const form = useForm({
   monthly_rent_amount:        props.contract?.monthly_rent_amount ?? '',
   variable_revenue_pct:       props.contract?.variable_revenue_pct ?? props.renewedFrom?.variable_revenue_pct ?? '',
   min_monthly_rent:           props.contract?.min_monthly_rent ?? '',
+  fx_rate:                    '',
   collection_currency:        props.contract?.collection_currency ?? props.renewedFrom?.collection_currency ?? 'EGP',
   collection_interval_months: props.contract?.collection_interval_months ?? props.renewedFrom?.collection_interval_months ?? 1,
   insurance_months:           props.contract?.insurance_months ?? props.renewedFrom?.insurance_months ?? 0,
@@ -462,6 +521,20 @@ watch(
   { immediate: true }
 )
 
+// Management Fee Revenue (owned by others, we manage it) and Management Fees
+// Expense (we own it, someone else manages it) are mutually exclusive.
+// Clear the expense side the moment the contract is switched to management_fee
+// revenue, so stale values from a previous selection can't linger and get submitted.
+watch(
+  () => form.revenue_type,
+  (type) => {
+    if (type === 'management_fee') {
+      form.has_management_fees = false
+      form.management_fee_expense_rate = ''
+    }
+  }
+)
+
 function formatDate(d) {
   if (!d) return '—'
   return new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -473,7 +546,12 @@ function formatMoney(v) {
 }
 
 function submit() {
-  if (!form.has_management_fees) {
+  if (isLocked.value) return // form is disabled via fieldset; this just guards against any programmatic bypass
+
+  // Management Fee Revenue (external owner) and Management Fees Expense
+  // (we own it, external manager) are mutually exclusive — never submit both.
+  if (form.revenue_type === 'management_fee' || !form.has_management_fees) {
+    form.has_management_fees = false
     form.management_fee_expense_rate = ''
   }
 

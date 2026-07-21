@@ -231,6 +231,16 @@
                 <textarea v-model="form.notes" rows="2" class="fv-input w-full rounded-lg px-3 py-2 text-sm resize-none" placeholder="Optional notes..."></textarea>
               </div>
 
+              <!-- Payment Schedule — % / auto-amount / term / forecasted date.
+                   Required on every save; this is what Cash Forecast reads
+                   instead of guessing from expense_date alone. -->
+              <PaymentScheduleRepeater
+                v-model="form.payment_schedule"
+                :expense-amount="form.expense_amount"
+                :expense-date="form.expense_date"
+                :error="errors.payment_schedule"
+              />
+
               <!-- Payment Repeater (only on Add) -->
               <div v-if="!editingExpense">
                 <div class="flex items-center justify-between mb-2">
@@ -382,6 +392,7 @@
 
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
+import PaymentScheduleRepeater from '@/Components/PaymentScheduleRepeater.vue'
 import { Link, router } from '@inertiajs/vue3'
 import { computed, ref } from 'vue'
 
@@ -452,6 +463,7 @@ const defaultForm = () => ({
   fx_rate:             '',
   notes:               '',
   payments:            [],
+  payment_schedule:    [{ percentage: '', forecasted_date: '', payment_term: '' }],
 })
 
 const form = ref(defaultForm())
@@ -474,6 +486,9 @@ function openEdit(exp) {
     fx_rate:             exp.fx_rate ?? '',
     notes:               exp.notes ?? '',
     payments:            [],
+    payment_schedule:    (exp.payment_schedule && exp.payment_schedule.length)
+      ? exp.payment_schedule.map(s => ({ percentage: s.percentage, forecasted_date: s.forecasted_date, payment_term: s.payment_term ?? '' }))
+      : [{ percentage: '', forecasted_date: '', payment_term: '' }],
   }
   // Resolve category id from name if needed (index passes category name, not id)
   // We store the raw expense so we can get ids from props
@@ -506,6 +521,17 @@ function submitExpense() {
   if (!form.value.expense_item_id)     e.expense_item_id     = 'Required'
   if (!form.value.expense_date)        e.expense_date        = 'Required'
   if (!form.value.expense_amount || Number(form.value.expense_amount) <= 0) e.expense_amount = 'Must be > 0'
+
+  const scheduleRows = form.value.payment_schedule.filter(r => r.percentage)
+  const scheduleTotal = scheduleRows.reduce((s, r) => s + (parseFloat(r.percentage) || 0), 0)
+  if (scheduleRows.length === 0) {
+    e.payment_schedule = 'At least one payment schedule row is required.'
+  } else if (Math.abs(scheduleTotal - 100) > 0.01) {
+    e.payment_schedule = `Payment schedule percentages must total 100%. Currently: ${scheduleTotal.toFixed(2)}%.`
+  } else if (scheduleRows.some(r => !r.forecasted_date)) {
+    e.payment_schedule = 'Every payment schedule row needs a forecasted date (pick a term or enter one manually).'
+  }
+
   if (Object.keys(e).length) { errors.value = e; return }
 
   submitting.value = true
@@ -519,6 +545,7 @@ function submitExpense() {
     fx_rate:             showFxRate.value ? (form.value.fx_rate || null) : null,
     notes:               form.value.notes || null,
     payments:            form.value.payments.filter(p => p.payment_date && p.amount),
+    payment_schedule:    scheduleRows,
   }
 
   if (editingExpense.value) {

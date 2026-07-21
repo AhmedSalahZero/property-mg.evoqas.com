@@ -15,17 +15,29 @@ use App\Http\Controllers\PropertyController;
 use App\Http\Controllers\RentContractController;
 use App\Http\Controllers\PropertyInstallmentController;
 use App\Http\Controllers\PropertyExpenseController;
+use App\Http\Controllers\CorporateExpenseController;
 use App\Http\Controllers\PropertyReportController;
 use App\Http\Controllers\TagController;
 use App\Http\Controllers\PropertyDashboardController;
 use App\Http\Controllers\CashForecastController;
 use App\Http\Controllers\KeepOrSellController;
+use App\Http\Controllers\InvestmentDecisionController;
 use App\Http\Controllers\CompanySubscriptionStatusController;
+use App\Http\Controllers\CurrencyRateController;
+use App\Http\Controllers\CompanyReportController;
+use App\Http\Controllers\Reports\TenantLedgerController;
+use App\Http\Controllers\Reports\RentCollectionsController;
+use App\Http\Controllers\Reports\InstallmentsController;
+use App\Http\Controllers\Reports\AnnualSummaryController;
+use App\Http\Controllers\Reports\RentBenchmarkController;
+use App\Http\Controllers\Reports\ExpenseReportController;
+use App\Http\Controllers\Reports\CustomReportController;
 
 // ══════════════════════════════════════════════════════
 // PUBLIC — Welcome / Login redirect
 // ══════════════════════════════════════════════════════
 Route::get('/keep-or-sell/share/{token}', [KeepOrSellController::class, 'share'])->name('keep-or-sell.share');
+Route::get('/investment-decision/share/{token}', [InvestmentDecisionController::class, 'shareAnalysis'])->name('investment-decision.share');
 Route::get('/', function () {
     if (auth()->check()) {
         $user = auth()->user();
@@ -139,6 +151,11 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
             Route::get('/dashboard/data',     [PropertyDashboardController::class, 'data'])->name('dashboard.data');
             Route::get('/cash-forecast',      [CashForecastController::class, 'index'])->name('cash-forecast');
             Route::get('/cash-forecast/data', [CashForecastController::class, 'data'])->name('cash-forecast.data');
+            // Fix for audit finding H-4 — persist the manually-entered
+            // Salaries/New Hirings/Other Collections/Other Payments rows
+            // that used to live only in the page's in-memory state.
+            Route::get('/cash-forecast/manual-rows',  [CashForecastController::class, 'manualRows'])->name('cash-forecast.manual-rows');
+            Route::post('/cash-forecast/manual-rows', [CashForecastController::class, 'saveManualRows'])->name('cash-forecast.manual-rows.save');
 
             // ── Keep or Sell ─────────────────────────────────────────────────
             // URL:  /companies/{company}/properties/keep-or-sell/...
@@ -153,6 +170,73 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
                 Route::delete('/{analysis}',                     [KeepOrSellController::class, 'destroy'])            ->name('destroy');
                 Route::post('/{analysis}/generate-token',        [KeepOrSellController::class, 'generateToken'])      ->name('generate-token');
             });
+
+            // ── Corporate Expenses ─────────────────────────────────────────────
+            // Company-level (not per-property) expenses, spread across the
+            // portfolio by the area-weighted allocation engine — see
+            // App\Services\CorporateExpenseAllocationService.
+            // URL:  /companies/{company}/properties/corporate-expenses/...
+            // Name: company.properties.corporate-expenses.*
+            //
+            // IMPORTANT — this entire group must stay ABOVE the wildcard
+            // '/{property}' routes below (tags/edit/update/show/destroy).
+            // 'corporate-expenses' is a single path segment, exactly the
+            // same shape as '/{property}', so if this group were placed
+            // AFTER Route::get('/{property}', ...PropertyController::show),
+            // Laravel would match GET /properties/corporate-expenses against
+            // THAT route first — treating "corporate-expenses" as a property
+            // ID, failing route-model binding, and returning a plain 404
+            // "Not Found" (not a 403 — this happens for EVERY user, not just
+            // super-admin; super-admin only surfaced it first because that's
+            // who happened to click it first). This is the exact same
+            // static-route-after-wildcard bug already hit once before by
+            // Currency Rates and Property Installments — see the notes on
+            // those two groups. Keep any future company-wide (non-{property})
+            // static route up here with Dashboard/Cash Forecast/Keep-or-Sell,
+            // never below this point.
+            Route::prefix('corporate-expenses')->name('corporate-expenses.')->group(function () {
+                Route::get('/',                                [CorporateExpenseController::class, 'index'])            ->name('index');
+                Route::get('/template',                         [CorporateExpenseController::class, 'downloadTemplate']) ->name('template');
+                Route::post('/preview-allocation',              [CorporateExpenseController::class, 'previewAllocation'])->name('preview-allocation');
+                Route::post('/import-preview',                  [CorporateExpenseController::class, 'importPreview'])   ->name('import-preview');
+                Route::post('/import-save',                     [CorporateExpenseController::class, 'importSave'])      ->name('import-save');
+                Route::post('/',                                [CorporateExpenseController::class, 'store'])            ->name('store');
+                Route::put('/{expense}',                        [CorporateExpenseController::class, 'update'])           ->name('update');
+                Route::delete('/{expense}',                     [CorporateExpenseController::class, 'destroy'])          ->name('destroy');
+                Route::get('/{expense}/allocations',            [CorporateExpenseController::class, 'allocations'])     ->name('allocations');
+                Route::post('/{expense}/payments',              [CorporateExpenseController::class, 'addPayment'])      ->name('payments.store');
+                Route::delete('/{expense}/payments/{payment}',  [CorporateExpenseController::class, 'deletePayment'])   ->name('payments.destroy');
+            });
+
+            // ── Investment Decision Tool ("Buy or Not Buy") ─────────────────────
+            // URL:  /companies/{company}/properties/investment-decision/...
+            // Name: company.properties.investment-decision.*
+            //
+            // IMPORTANT — same rule as Corporate Expenses above: this entire
+            // group must stay ABOVE the wildcard '/{property}' routes below.
+            // 'investment-decision' is a single path segment, the same shape
+            // as '/{property}' — placed after the wildcard, Laravel would
+            // try to bind "investment-decision" as a property ID and 404.
+            Route::prefix('investment-decision')->name('investment-decision.')->group(function () {
+                Route::get('/',                       [InvestmentDecisionController::class, 'index'])   ->name('index');
+                Route::get('/create',                 [InvestmentDecisionController::class, 'create'])  ->name('create');
+                Route::post('/',                      [InvestmentDecisionController::class, 'store'])   ->name('store');
+                Route::get('/{prospect}/edit',         [InvestmentDecisionController::class, 'edit'])    ->name('edit');
+                Route::put('/{prospect}',              [InvestmentDecisionController::class, 'update'])  ->name('update');
+                Route::delete('/{prospect}',           [InvestmentDecisionController::class, 'destroy']) ->name('destroy');
+                Route::get('/{prospect}/workspace',    [InvestmentDecisionController::class, 'workspace'])->name('workspace');
+                Route::patch('/{prospect}/status',      [InvestmentDecisionController::class, 'updateStatus'])->name('update-status');
+                Route::post('/{prospect}/compute',     [InvestmentDecisionController::class, 'compute']) ->name('compute');
+
+                // ── Phase 4 — saved/shareable snapshots ─────────────────
+                Route::get('/{prospect}/analyses',                              [InvestmentDecisionController::class, 'analysesIndex'])              ->name('analyses.index');
+                Route::post('/{prospect}/analyses',                             [InvestmentDecisionController::class, 'storeAnalysis'])               ->name('analyses.store');
+                Route::get('/{prospect}/analyses/{analysis}',                   [InvestmentDecisionController::class, 'showAnalysis'])                ->name('analyses.show');
+                Route::patch('/{prospect}/analyses/{analysis}/recommendation',  [InvestmentDecisionController::class, 'updateAnalysisRecommendation'])->name('analyses.update-recommendation');
+                Route::delete('/{prospect}/analyses/{analysis}',                [InvestmentDecisionController::class, 'destroyAnalysis'])             ->name('analyses.destroy');
+                Route::post('/{prospect}/analyses/{analysis}/generate-token',   [InvestmentDecisionController::class, 'generateAnalysisToken'])       ->name('analyses.generate-token');
+            });
+
             Route::get('/{property}/tags',    [TagController::class, 'forProperty'])->name('tags.index');
             Route::put('/{property}/tags',    [TagController::class, 'sync'])->name('tags.sync');
             Route::get('/{property}/edit',    [PropertyController::class, 'edit'])->name('edit');
@@ -173,6 +257,7 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
                 Route::get('/{contract}/renew',         [RentContractController::class, 'renew'])->name('renew');
                 Route::post('/{contract}/terminate',    [RentContractController::class, 'terminate'])->name('terminate');
                 Route::patch('/{contract}/collections/{collection}/collected', [RentContractController::class, 'markCollected'])->name('collections.collected');
+                Route::delete('/{contract}/collections/{collection}', [RentContractController::class, 'deleteCollection'])->name('collections.destroy');
                 Route::delete('/{contract}',            [RentContractController::class, 'destroy'])->name('destroy');
             });
 
@@ -183,6 +268,8 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
                 Route::get('/',                              [PropertyInstallmentController::class, 'load'])     ->name('load');
                 Route::post('/',                             [PropertyInstallmentController::class, 'save'])     ->name('save');
                 Route::patch('/{due}/mark-paid',             [PropertyInstallmentController::class, 'markPaid'])->name('mark-paid');
+                Route::patch('/{due}/mark-unpaid',           [PropertyInstallmentController::class, 'markUnpaid'])->name('mark-unpaid');
+                Route::delete('/{due}',                      [PropertyInstallmentController::class, 'deleteDue'])->name('delete-due');
                 Route::post('/import',                       [PropertyInstallmentController::class, 'import'])  ->name('import');
             });
 
@@ -207,9 +294,69 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
                 Route::get('/',                    [PropertyReportController::class, 'index'])->name('index');
                 Route::get('/rent-expenses',      [PropertyReportController::class, 'rentExpenses'])->name('rent-expenses');
                 Route::get('/rent-expenses/data', [PropertyReportController::class, 'rentExpensesData'])->name('rent-expenses.data');
+                Route::get('/rent-expenses/detail', [PropertyReportController::class, 'rentExpensesDetail'])->name('rent-expenses.detail');
             });
 
         }); // end properties
+
+        // ── Company Reports ────────────────────────────────────────────
+        // URL:  /companies/{company}/reports/...
+        // Name: company.reports.*
+        Route::prefix('reports')->name('reports.')->group(function () {
+            Route::get('/',                               [CompanyReportController::class, 'index'])           ->name('index');
+
+            Route::get('/tenant-ledger',                  [TenantLedgerController::class, 'index'])            ->name('tenant-ledger');
+            Route::get('/tenant-ledger/data',             [TenantLedgerController::class, 'data'])             ->name('tenant-ledger.data');
+
+            Route::get('/rent-collections',               [RentCollectionsController::class, 'index'])         ->name('rent-collections');
+            Route::get('/rent-collections/data',          [RentCollectionsController::class, 'data'])          ->name('rent-collections.data');
+
+            Route::get('/installments',                   [InstallmentsController::class, 'index'])            ->name('installments');
+            Route::get('/installments/data',              [InstallmentsController::class, 'data'])             ->name('installments.data');
+
+            Route::get('/annual-summary',                 [AnnualSummaryController::class, 'index'])           ->name('annual-summary');
+            Route::get('/annual-summary/data',            [AnnualSummaryController::class, 'data'])            ->name('annual-summary.data');
+
+            Route::get('/rent-benchmark',                 [RentBenchmarkController::class, 'index'])           ->name('rent-benchmark');
+            Route::get('/rent-benchmark/data',            [RentBenchmarkController::class, 'data'])            ->name('rent-benchmark.data');
+
+            Route::get('/expense-report',                 [ExpenseReportController::class, 'index'])           ->name('expense-report');
+            Route::get('/expense-report/data',            [ExpenseReportController::class, 'data'])            ->name('expense-report.data');
+
+            // ── Exchange Rates — moved here from Company Settings (July
+            // 2026), confirmed request. Same audit-C4 fix history as
+            // before, just relocated. NOTE: static routes (template/
+            // export/import) are intentionally placed above the
+            // parameterized '/{rate}' route below — this project has
+            // already been bitten once by Laravel matching a static path
+            // against a wildcard route defined earlier (see the Corporate
+            // Expenses session log entry), so template/export/import must
+            // stay ahead of destroy('/currency-rates/{rate}').
+            // URL:  /companies/{company}/reports/currency-rates/...
+            // Name: company.reports.currency-rates.*
+            Route::prefix('currency-rates')->name('currency-rates.')->group(function () {
+                Route::get('/',                    [CurrencyRateController::class, 'index'])           ->name('index');
+                Route::get('/template',            [CurrencyRateController::class, 'downloadTemplate'])->name('template');
+                Route::get('/export',              [CurrencyRateController::class, 'export'])          ->name('export');
+                Route::post('/import',             [CurrencyRateController::class, 'import'])          ->name('import');
+                Route::post('/from-statistica',    [CurrencyRateController::class, 'importFromStatistica'])->name('from-statistica');
+                Route::post('/',                   [CurrencyRateController::class, 'store'])           ->name('store');
+                Route::delete('/{rate}',           [CurrencyRateController::class, 'destroy'])         ->name('destroy');
+            });
+
+            // ── Custom Report Builder ──────────────────────────────────
+            // URL:  /companies/{company}/reports/custom/...
+            // Name: company.reports.custom.*
+            Route::prefix('custom')->name('custom.')->group(function () {
+                Route::get('/builder',              [CustomReportController::class, 'builder'])  ->name('builder');
+                Route::get('/{report}/edit',        [CustomReportController::class, 'builder'])  ->name('edit');
+                Route::post('/',                    [CustomReportController::class, 'store'])    ->name('store');
+                Route::put('/{report}',             [CustomReportController::class, 'update'])   ->name('update');
+                Route::delete('/{report}',          [CustomReportController::class, 'destroy'])  ->name('destroy');
+                Route::post('/run',                 [CustomReportController::class, 'run'])      ->name('run');
+                Route::post('/export',              [CustomReportController::class, 'export'])   ->name('export');
+            });
+        });
 
         // ── Projects & Tasks ───────────────────────────
         // Module: projects_tasks

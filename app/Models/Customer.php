@@ -50,43 +50,12 @@ class Customer extends Model
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 
-    /**
-     * Pull distinct customer_name + business_sector pairs from sales_data
-     * for a given company and upsert into customers table.
-     * Returns count of newly inserted records.
-     */
-    public static function importFromSalesData(int $companyId): int
-    {
-        $rows = \Illuminate\Support\Facades\DB::table('sales_data')
-            ->where('company_id', $companyId)
-            ->whereNotNull('customer_name')
-            ->where('customer_name', '!=', '')
-            ->selectRaw('TRIM(customer_name) as customer_name, TRIM(business_sector) as business_sector')
-            ->distinct()
-            ->get();
-
-        $inserted = 0;
-
-        foreach ($rows as $row) {
-            $exists = static::where('company_id', $companyId)
-                ->where('customer_name', $row->customer_name)
-                ->exists();
-
-            if (! $exists) {
-                static::create([
-                    'company_id'      => $companyId,
-                    'customer_name'   => $row->customer_name,
-                    'business_sector' => $row->business_sector ?: null,
-                    'tenant_nature'   => null,
-                    'is_related_party'=> false,
-                    'source'          => self::SOURCE_IMPORTED,
-                    'is_active'       => true,
-                    'sort_order'      => static::where('company_id', $companyId)->max('sort_order') + 1,
-                ]);
-                $inserted++;
-            }
-        }
-
-        return $inserted;
-    }
+    // Fix for audit finding M-1 — importFromSalesData() used to live here,
+    // pulling distinct customer_name/business_sector pairs from the
+    // sales_data table. Sales Analysis (and its sales_data table) was
+    // permanently dropped in the April 2026 cleanup session, so this method
+    // has queried a table that no longer exists ever since — dormant
+    // dead code that nothing in the app calls, but would throw a hard SQL
+    // error ("table doesn't exist") if anything ever did. Removed rather
+    // than left as a trap for a future developer.
 }

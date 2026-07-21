@@ -161,7 +161,7 @@
 
                 <!-- Action button -->
                 <Link :href="`/companies/${props.company.id}/statistica/${s.id}`"
-                  class="w-full flex items-center justify-center gap-2 bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-sm font-medium py-2 rounded-lg transition-colors">
+                  class="w-full flex items-center justify-center gap-2 bg-blue-700 hover:bg-gray-700 text-gray-300 hover:text-white text-sm font-medium py-2 rounded-lg transition-colors">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                   </svg>

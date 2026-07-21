@@ -26,8 +26,16 @@ class UserTaskController extends Controller
             ->get()
             ->map(fn($t) => $this->formatTask($t));
 
-        // All companies for the "related company" dropdown
-        $companies = Company::orderBy('name')->get(['id', 'name']);
+        // Fix for audit finding C-4 — this "related company" dropdown
+        // previously listed every client company's name to every user,
+        // regardless of which company they belong to (a personal Tasks
+        // page has no {company} URL segment to protect it, so this was the
+        // only guard needed). A regular user only ever needs their own
+        // company here; only a super-admin manages multiple companies and
+        // genuinely needs the full list.
+        $companies = $user->is_super_admin
+            ? Company::orderBy('name')->get(['id', 'name'])
+            : Company::where('id', $user->company_id)->get(['id', 'name']);
 
         // Summary counts
         $counts = [

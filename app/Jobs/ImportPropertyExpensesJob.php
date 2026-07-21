@@ -6,6 +6,9 @@ use App\Models\ExpenseCategory;
 use App\Models\ExpenseItem;
 use App\Models\PropertyExpense;
 use App\Models\PropertyExpensePayment;
+use App\Models\Company;
+use App\Services\CurrencyConversionService;
+use App\Services\ExpensePaymentScheduleService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -107,6 +110,13 @@ class ImportPropertyExpensesJob implements ShouldQueue
             }
             $notes = !empty($headerMap['notes']) ? trim((string)($row[$headerMap['notes']] ?? '')) : null;
             $initialPaymentsRaw = !empty($headerMap['initial_payments']) ? trim((string)($row[$headerMap['initial_payments']] ?? '')) : '';
+            $paymentTerm = !empty($headerMap['payment_term']) ? strtolower(trim((string)($row[$headerMap['payment_term']] ?? ''))) : 'cash';
+
+            // Fix for audit C4 — convert to the company's base currency, same
+            // rules as the single-entry form: prefer a manually-provided
+            // fx_rate column, else fall back to the currency_rates table.
+            $baseCurrency = strtoupper($this->company()->currency ?: 'EGP');
+            $conversion   = $this->convertToBase($baseCurrency, $amount, $currency, $date, $fxRate);
 
             $expense = PropertyExpense::create([
                 'company_id'          => $this->companyId,
@@ -116,6 +126,9 @@ class ImportPropertyExpensesJob implements ShouldQueue
                 'expense_date'        => $date,
                 'expense_amount'      => $amount,
                 'currency'            => $currency,
+                'base_amount'         => $conversion['base_amount'],
+                'base_currency'       => $conversion['base_currency'],
+                'fx_rate_used'        => $conversion['fx_rate_used'],
                 'fx_rate'             => $fxRate,
                 'notes'               => $notes ?: null,
                 'status'              => PropertyExpense::STATUS_UNPAID,
@@ -123,13 +136,34 @@ class ImportPropertyExpensesJob implements ShouldQueue
             ]);
 
             foreach ($this->parseInitialPayments($initialPaymentsRaw) as $p) {
+                $paymentConversion = $this->convertToBase($baseCurrency, $p['amount'], $currency, $p['payment_date'], $fxRate);
+
                 PropertyExpensePayment::create([
                     'company_id'          => $this->companyId,
                     'property_expense_id' => $expense->id,
                     'payment_date'        => $p['payment_date'],
                     'amount'              => $p['amount'],
+                    'base_amount'         => $paymentConversion['base_amount'],
+                    'base_currency'       => $paymentConversion['base_currency'],
+                    'fx_rate_used'        => $paymentConversion['fx_rate_used'],
                 ]);
             }
+
+            // Fix — bulk-imported expenses need a forecasted schedule too,
+            // same as ones entered by hand, so Cash Forecast has a real date
+            // to place them on instead of falling back to expense_date
+            // alone. A single payment_term per Excel row (rather than a
+            // full split schedule) is the confirmed scope for import — one
+            // 100% row, dated expense_date + that term's days.
+            $scheduleService = app(ExpensePaymentScheduleService::class);
+            $forecastedDate  = $scheduleService->dateForTerm($paymentTerm, \Carbon\Carbon::parse($date));
+            $scheduleService->replaceSchedule($expense, [[
+                'percentage'      => 100.0,
+                'amount'          => $amount,
+                'forecasted_date' => $forecastedDate->toDateString(),
+                'payment_term'    => $paymentTerm,
+                'sort_order'      => 0,
+            ]]);
 
             $expense->recalculateStatus();
             $imported++;
@@ -141,6 +175,28 @@ class ImportPropertyExpensesJob implements ShouldQueue
             'property_id' => $this->propertyId,
             'imported_rows' => $imported,
         ]);
+    }
+
+    private ?Company $companyCache = null;
+
+    private function company(): Company
+    {
+        return $this->companyCache ??= Company::findOrFail($this->companyId);
+    }
+
+    private function convertToBase(string $base, float $amount, string $currency, string $date, ?float $manualRate): array
+    {
+        $currency = strtoupper($currency);
+
+        if ($currency === $base) {
+            return ['base_amount' => round($amount, 2), 'base_currency' => $base, 'fx_rate_used' => 1.0];
+        }
+
+        if ($manualRate && $manualRate > 0) {
+            return ['base_amount' => round($amount * $manualRate, 2), 'base_currency' => $base, 'fx_rate_used' => $manualRate];
+        }
+
+        return app(CurrencyConversionService::class)->convert($this->companyId, $base, $amount, $currency, $date);
     }
 
     private function parseInitialPayments(string $raw): array

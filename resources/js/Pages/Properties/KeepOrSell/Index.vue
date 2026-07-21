@@ -198,21 +198,43 @@
                 <div v-if="unitInfo.property_name" style="margin-top:14px; display:grid; grid-template-columns:repeat(4,1fr); gap:10px;">
                   <div style="padding:12px 14px; border-radius:8px; background:var(--fv-bg); border:1px solid var(--fv-border);">
                     <p class="info-label">Market Value (Latest)</p>
-                    <p style="color:var(--fv-gold); font-size:16px; font-weight:800; margin:0;">{{ fmt(unitInfo.market_value) }}</p>
+                    <p style="color:var(--fv-gold); font-size:16px; font-weight:800; margin:0;">
+                      {{ unitInfo.market_value != null ? fmt(unitInfo.market_value) : '—' }}
+                    </p>
+                    <p v-if="unitInfo.valuation_currency && unitInfo.valuation_currency !== unitInfo.base_currency && unitInfo.market_value_original != null"
+                       style="color:var(--fv-text-muted); font-size:11px; margin:4px 0 0;">
+                      Converted from {{ fmt(unitInfo.market_value_original) }} {{ unitInfo.valuation_currency }}
+                    </p>
                   </div>
                   <div style="padding:12px 14px; border-radius:8px; background:var(--fv-bg); border:1px solid var(--fv-border);">
                     <p class="info-label">Acquisition Cost</p>
-                    <p style="color:var(--fv-text-primary); font-size:16px; font-weight:800; margin:0;">{{ fmt(unitInfo.acquisition_cost) }}</p>
+                    <p style="color:var(--fv-text-primary); font-size:16px; font-weight:800; margin:0;">
+                      {{ unitInfo.acquisition_cost != null ? fmt(unitInfo.acquisition_cost) : '—' }}
+                    </p>
+                    <p v-if="unitInfo.valuation_currency && unitInfo.valuation_currency !== unitInfo.base_currency && unitInfo.acquisition_cost_original != null"
+                       style="color:var(--fv-text-muted); font-size:11px; margin:4px 0 0;">
+                      Converted from {{ fmt(unitInfo.acquisition_cost_original) }} {{ unitInfo.valuation_currency }}
+                    </p>
                   </div>
                   <div style="padding:12px 14px; border-radius:8px; background:var(--fv-bg); border:1px solid var(--fv-border);">
                     <p class="info-label">Currency</p>
-                    <p style="color:var(--fv-text-primary); font-size:16px; font-weight:800; margin:0;">{{ unitInfo.currency }}</p>
+                    <p style="color:var(--fv-text-primary); font-size:16px; font-weight:800; margin:0;">{{ unitInfo.base_currency }}</p>
+                    <p v-if="unitInfo.valuation_currency && unitInfo.valuation_currency !== unitInfo.base_currency"
+                       style="color:var(--fv-text-muted); font-size:11px; margin:4px 0 0;">
+                      Property priced in {{ unitInfo.valuation_currency }} — all figures shown in {{ unitInfo.base_currency }}
+                    </p>
                   </div>
                   <!-- Installment badge — only shown when ownership = installments -->
                   <div v-if="unitInfo.ownership === 'installments'" style="padding:12px 14px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.2);">
                     <p class="info-label" style="color:#fca5a5;">Remaining Installments</p>
                     <p style="color:#ef4444; font-size:16px; font-weight:800; margin:0;">{{ fmt(unitInfo.total_remaining_installments) }}</p>
                   </div>
+                </div>
+
+                <div v-if="unitInfo.valuation_fx_missing" style="margin-top:10px; padding:10px 14px; border-radius:8px; background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); color:#ef4444; font-size:12px;">
+                  ⚠ This property is priced in {{ unitInfo.valuation_currency }} and no exchange rate to {{ unitInfo.base_currency }} is on file in Statistica.
+                  Market Value / Acquisition Cost could not be converted automatically — enter Current Market Value below manually, in {{ unitInfo.base_currency }},
+                  or add a {{ unitInfo.valuation_currency }} rate first for an accurate result.
                 </div>
               </div>
 
@@ -891,7 +913,7 @@ function copyShare() {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--fv-text-muted);
+  color: var(--fv-text-primary);
   margin-bottom: 5px;
 }
 .info-label {

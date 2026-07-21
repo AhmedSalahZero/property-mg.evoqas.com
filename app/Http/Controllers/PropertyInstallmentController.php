@@ -6,18 +6,24 @@ use App\Models\Company;
 use App\Models\Property;
 use App\Models\PropertyInstallmentPlan;
 use App\Models\PropertyInstallmentDue;
+use App\Services\CurrencyConversionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Maatwebsite\Excel\Facades\Excel;
+use App\Http\Controllers\Concerns\AuthorizesCompany;
 
 class PropertyInstallmentController extends Controller
 {
+    use AuthorizesCompany;
+
     // ═══════════════════════════════════════════════════════════════════
     // LOAD — return plan + dues for the modal
     // ═══════════════════════════════════════════════════════════════════
     public function load(Company $company, Property $property)
     {
         $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
         $this->authorizeInstallment($property);
 
         $plan = PropertyInstallmentPlan::with('dues')
@@ -37,6 +43,7 @@ class PropertyInstallmentController extends Controller
     public function save(Request $request, Company $company, Property $property)
     {
         $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
         $this->authorizeInstallment($property);
 
         $type = $request->input('installment_type', 'regular');
@@ -84,11 +91,21 @@ class PropertyInstallmentController extends Controller
         if ($type === 'variable') {
             $request->validate([
                 'variable_dues'          => 'nullable|array',
+                'variable_dues.*.id'     => 'nullable|integer',
                 'variable_dues.*.date'   => 'required|date',
                 'variable_dues.*.amount' => 'required|numeric|min:0',
                 'variable_dues.*.notes'  => 'nullable|string|max:500',
             ]);
         }
+
+        // Fix for audit finding F-2 — the plan upsert plus the due
+        // generation/reconciliation that follows it used to run as separate,
+        // untransacted steps (and the variable-mode branch's own
+        // insert/update/delete sequence had no transaction either). A
+        // failure partway through could leave the plan saved with a stale or
+        // partial due schedule. Wrapping the whole save in one transaction
+        // means the plan and its full due schedule succeed or fail together.
+        $plan = DB::transaction(function () use ($request, $company, $property, $type, $base) {
 
         // ── Upsert plan ───────────────────────────────────────────────
         $plan = PropertyInstallmentPlan::updateOrCreate(
@@ -127,30 +144,124 @@ class PropertyInstallmentController extends Controller
         if ($type === 'regular') {
             $plan->generateDues();
         } else {
-            // Variable — save dues rows directly
-            $plan->dues()->delete();
-            $currency = $base['currency'];
-            $rows     = [];
+            // Variable — reconcile against existing dues instead of a blind
+            // delete + insert. This closes the same C2 gap for variable-mode
+            // plans that generateDues() closes for regular-mode ones: this
+            // branch used to run `$plan->dues()->delete()` unconditionally,
+            // wiping every row's 'paid' status the moment the plan was saved
+            // again — even just to add one more row.
+            //
+            // Fix: this used to match existing rows to submitted rows BY
+            // DATE (keyed on due_date). That meant editing a row's date —
+            // the single most normal edit a user would make — was
+            // indistinguishable from deleting the old row and adding a new
+            // one: nothing in the submission matched the old date anymore,
+            // so a brand new row got inserted for the new date, and the old
+            // row only survived because it happened to already be
+            // 'overdue' (the "don't delete anything but pending" safety net
+            // caught it) — producing a visible duplicate instead of an
+            // in-place edit. Matching by the row's own database id (sent
+            // back from loadPlan() and round-tripped by the frontend on
+            // every submitted row) fixes this at the root: an edited row is
+            // now always recognized as the SAME row regardless of what its
+            // date changed to, and its status is recomputed from the new
+            // date rather than staying stuck on whatever it was before the
+            // edit. Rows with no id (genuinely new, added in the form) are
+            // still always inserted fresh.
+            $currency     = $base['currency'];
+            $baseCurrency = strtoupper($company->currency ?: 'EGP');
+            $fx           = app(CurrencyConversionService::class);
+            $today        = Carbon::today();
+
+            $existingById = $plan->dues()->where('due_type', 'variable')->get()->keyBy('id');
+
+            $keepIds  = [];
+            $toInsert = [];
+
+            // A date-only edit should re-derive status the same way the
+            // daily MarkOverdueRecords command would, rather than leaving it
+            // stuck on whatever it was before the edit (e.g. correcting an
+            // 'overdue' row's date into the future must bring it back to
+            // 'pending', not leave it permanently overdue).
+            $statusForDate = fn (string $date): string =>
+                Carbon::parse($date)->lt($today) ? PropertyInstallmentDue::STATUS_OVERDUE : PropertyInstallmentDue::STATUS_PENDING;
+
             foreach ($request->input('variable_dues', []) as $i => $d) {
-                $rows[] = [
-                    'company_id'  => $company->id,
-                    'property_id' => $property->id,
-                    'plan_id'     => $plan->id,
-                    'due_type'    => 'variable',
-                    'due_date'    => $d['date'],
-                    'amount'      => $d['amount'],
-                    'currency'    => $currency,
-                    'status'      => 'pending',
-                    'notes'       => $d['notes'] ?? null,
-                    'sort_order'  => $i,
-                    'created_at'  => now(),
-                    'updated_at'  => now(),
+                $id    = $d['id'] ?? null;
+                $match = $id ? $existingById->get((int) $id) : null;
+
+                $conversion = $fx->convert($company->id, $baseCurrency, (float) $d['amount'], $currency, $d['date']);
+
+                if ($match) {
+                    // Same row (matched by id) — apply the edit in place.
+                    // A 'paid' row can now be edited too (confirmed product
+                    // decision — this is a Property Management tool, not an
+                    // accounting ledger, and the frontend already confirms
+                    // with the user before submitting a change to a paid
+                    // row). Its status is deliberately left as 'paid' rather
+                    // than run through $statusForDate() — correcting a typo
+                    // in a paid row's date/amount doesn't mean the money
+                    // was never actually received.
+                    $newStatus = $match->status === PropertyInstallmentDue::STATUS_PAID
+                        ? PropertyInstallmentDue::STATUS_PAID
+                        : $statusForDate($d['date']);
+
+                    $match->update([
+                        'due_date'      => $d['date'],
+                        'amount'        => $d['amount'],
+                        'currency'      => $currency,
+                        'base_amount'   => $conversion['base_amount'],
+                        'base_currency' => $conversion['base_currency'],
+                        'fx_rate_used'  => $conversion['fx_rate_used'],
+                        'notes'         => $d['notes'] ?? null,
+                        'status'        => $newStatus,
+                        'sort_order'    => $i,
+                    ]);
+                    $keepIds[] = $match->id;
+                    continue;
+                }
+
+                $toInsert[] = [
+                    'company_id'    => $company->id,
+                    'property_id'   => $property->id,
+                    'plan_id'       => $plan->id,
+                    'due_type'      => 'variable',
+                    'due_date'      => $d['date'],
+                    'amount'        => $d['amount'],
+                    'currency'      => $currency,
+                    'base_amount'   => $conversion['base_amount'],
+                    'base_currency' => $conversion['base_currency'],
+                    'fx_rate_used'  => $conversion['fx_rate_used'],
+                    'status'        => $statusForDate($d['date']),
+                    'notes'         => $d['notes'] ?? null,
+                    'sort_order'    => $i,
+                    'created_at'    => now(),
+                    'updated_at'    => now(),
                 ];
             }
-            if (!empty($rows)) {
-                PropertyInstallmentDue::insert($rows);
+
+            if (!empty($toInsert)) {
+                PropertyInstallmentDue::insert($toInsert);
+            }
+
+            // Anything left in $existingById that wasn't matched above (i.e.
+            // its id isn't in $keepIds) is a row the user removed from the
+            // form entirely. Only remove it if it's still 'pending' — a
+            // leftover 'overdue' or 'paid' row is history and must survive
+            // even if it was removed from the current submission, same
+            // protective rule as before this fix (only HOW rows are matched
+            // to submitted entries changed — by id now instead of by date —
+            // not this deletion safety net).
+            $leftoverIds = $existingById->keys()->diff($keepIds)->all();
+            if (!empty($leftoverIds)) {
+                PropertyInstallmentDue::whereIn('id', $leftoverIds)
+                    ->where('status', 'pending')
+                    ->delete();
             }
         }
+
+            return $plan;
+        });
 
         $plan->load('dues');
 
@@ -167,6 +278,8 @@ class PropertyInstallmentController extends Controller
     public function markPaid(Request $request, Company $company, Property $property, PropertyInstallmentDue $due)
     {
         $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
+        abort_unless($due->property_id === $property->id, 404);
 
         $data = $request->validate([
             'paid_date' => 'required|date',
@@ -183,11 +296,102 @@ class PropertyInstallmentController extends Controller
     }
 
     // ═══════════════════════════════════════════════════════════════════
+    // MARK UNPAID — undo a Mark Paid, the required first step before a
+    // paid row can be deleted (see deleteDue() below).
+    // ═══════════════════════════════════════════════════════════════════
+    /**
+     * Confirmed product decision (July 2026 session): a paid installment
+     * due can never be deleted directly — the user must first explicitly
+     * un-mark it as paid. This is that "undo" action. It's the mirror
+     * image of markPaid(): clears paid_date and reverts status to
+     * whatever the automatic daily job (MarkOverdueRecords /
+     * PropertyInstallmentDue::autoMarkOverdue()) would have set it to by
+     * now if it had never been paid — 'overdue' if due_date has already
+     * passed, 'pending' otherwise — so the row lands in the same state a
+     * freshly-generated due in that situation would be in, rather than
+     * silently going stale as 'pending' forever even if its date is long
+     * past.
+     *
+     * This is NOT an accounting reversal — VERO is a property management
+     * tool, not a ledger, so there's no separate "payment" record being
+     * deleted here and no audit trail requirement beyond what the
+     * property_installment_dues row itself already shows (status +
+     * paid_date). Reverting the status is the whole action.
+     */
+    public function markUnpaid(Company $company, Property $property, PropertyInstallmentDue $due)
+    {
+        $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
+        abort_unless($due->property_id === $property->id, 404);
+
+        if ($due->status !== PropertyInstallmentDue::STATUS_PAID) {
+            return response()->json(['message' => 'This installment is not currently marked as paid.'], 422);
+        }
+
+        $newStatus = Carbon::parse($due->due_date)->lt(Carbon::today())
+            ? PropertyInstallmentDue::STATUS_OVERDUE
+            : PropertyInstallmentDue::STATUS_PENDING;
+
+        $due->update([
+            'status'    => $newStatus,
+            'paid_date' => null,
+        ]);
+
+        return response()->json(['message' => 'Marked as unpaid.', 'due' => $due->fresh()]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // DELETE SINGLE DUE — explicit, deliberate row deletion
+    // ═══════════════════════════════════════════════════════════════════
+    /**
+     * Hard-deletes exactly one due row — no soft-delete, this is a
+     * property management tool rather than an accounting ledger, so
+     * there's no requirement to retain a trace of a genuinely-wrong row
+     * (e.g. a duplicate) once it's gone.
+     *
+     * Confirmed product decision (July 2026 session): a row that is
+     * currently 'paid' can NEVER be deleted directly — the user must call
+     * markUnpaid() first. This used to be enforced only as a stronger
+     * confirm() warning on the frontend, which meant a paid row's removal
+     * (and the change to paid totals that comes with it) was never
+     * actually a deliberate, separate step — the backend simply trusted
+     * whatever the frontend sent. It now refuses outright with a 422 if
+     * the row is still 'paid', so "un-paying" a row is always its own
+     * explicit action before deletion, not a side effect of clicking
+     * delete twice fast enough to dismiss a popup.
+     *
+     * This is deliberately separate from save()'s bulk reconciliation,
+     * which never deletes a paid row and only quietly deletes a pending
+     * row as a side effect of it disappearing from a resubmitted form —
+     * that protects against ACCIDENTAL loss during an unrelated edit, but
+     * gave no way to explicitly and intentionally remove one specific row
+     * that's genuinely wrong. This endpoint is that explicit action, for
+     * any row that isn't (or is no longer) paid.
+     */
+    public function deleteDue(Company $company, Property $property, PropertyInstallmentDue $due)
+    {
+        $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
+        abort_unless($due->property_id === $property->id, 404);
+
+        if ($due->status === PropertyInstallmentDue::STATUS_PAID) {
+            return response()->json([
+                'message' => 'This installment is marked as paid. Mark it as unpaid first, then delete it.',
+            ], 422);
+        }
+
+        $due->delete();
+
+        return response()->json(['message' => 'Installment due removed.']);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
     // IMPORT EXCEL (variable type)
     // ═══════════════════════════════════════════════════════════════════
     public function import(Request $request, Company $company, Property $property)
     {
         $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
         $this->authorizeInstallment($property);
 
         $request->validate([
@@ -226,18 +430,21 @@ class PropertyInstallmentController extends Controller
     // ═══════════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════
-    private function authorizeCompany(Company $company): void
-    {
-        $user = auth()->user();
-        if (! $user->is_super_admin && $user->company_id !== $company->id) {
-            abort(403);
-        }
-    }
 
     private function authorizeInstallment(Property $property): void
     {
         if ($property->ownership !== 'installments') {
             abort(403, 'This property does not have installment ownership.');
         }
+    }
+
+    /**
+     * Fix for audit finding C-2 — authorizeCompany() alone doesn't confirm
+     * {property}/{due} (resolved by Laravel with no company filter) belong
+     * to the URL's {company}. See the same fix in PropertyController.
+     */
+    private function authorizeProperty(Company $company, Property $property): void
+    {
+        abort_unless($property->company_id === $company->id, 404);
     }
 }

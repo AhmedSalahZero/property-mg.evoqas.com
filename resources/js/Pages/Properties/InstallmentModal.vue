@@ -270,6 +270,7 @@
                                         <div>
                                             <label v-if="idx === 0" class="block text-xs fv-text-label mb-1">Date</label>
                                             <input v-model="row.date" type="date" class="fv-input w-full rounded-lg px-3 py-2 text-sm" />
+                                            <span v-if="row.status === 'paid'" class="fv-badge text-xs mt-1 inline-block" style="color:#34d399">Paid</span>
                                         </div>
                                         <div>
                                             <label v-if="idx === 0" class="block text-xs fv-text-label mb-1">Amount</label>
@@ -349,16 +350,46 @@
                                                     </td>
                                                     <td class="py-2 fv-text-muted text-xs">{{ due.paid_date ? formatDate(due.paid_date) : '—' }}</td>
                                                     <td class="py-2">
-                                                        <button
-                                                            v-if="due.status !== 'paid'"
-                                                            @click="openMarkPaid(due)"
-                                                            class="fv-action-btn"
-                                                            title="Mark as Paid"
-                                                        >
-                                                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                                                            </svg>
-                                                        </button>
+                                                        <div class="flex items-center gap-1.5">
+                                                            <button
+                                                                v-if="due.status !== 'paid'"
+                                                                @click="openMarkPaid(due)"
+                                                                class="fv-action-btn"
+                                                                title="Mark as Paid"
+                                                            >
+                                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                                                </svg>
+                                                            </button>
+                                                            <button
+                                                                v-if="due.status === 'paid'"
+                                                                @click="markUnpaid(due)"
+                                                                class="fv-action-btn"
+                                                                title="Mark as Unpaid (required before this row can be deleted)"
+                                                            >
+                                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l-4-4 4-4M5 10h11a4 4 0 010 8h-1"/>
+                                                                </svg>
+                                                            </button>
+                                                            <button
+                                                                v-if="due.status !== 'paid'"
+                                                                @click="deleteDue(due)"
+                                                                class="fv-action-btn fv-action-btn-danger"
+                                                                title="Delete this installment"
+                                                            >
+                                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                                                </svg>
+                                                            </button>
+                                                            <span
+                                                                v-if="due.status === 'paid'"
+                                                                class="text-xs fv-text-muted"
+                                                                style="padding:0 4px;"
+                                                                title="Paid rows can't be deleted directly — mark as unpaid first"
+                                                            >
+                                                                🔒
+                                                            </span>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             </tbody>
@@ -545,6 +576,10 @@ const loading   = ref(false)
 const saving    = ref(false)
 const activeTab = ref('plan')
 const dues      = ref([])
+// Snapshot of paid variable-due rows as originally loaded, keyed by id —
+// see loadPlan()/savePlan() for how this is used to confirm before
+// submitting a change to a paid row.
+const paidSnapshot = ref({})
 
 const tabs = [
     { key: 'plan',     label: 'Installment Plan' },
@@ -582,7 +617,7 @@ const defaultForm = () => ({
     maintenance_amount:  0,
     maintenance_count:   1,
     maintenance_interval: 'monthly',
-    variable_dues:       [{ date: '', amount: 0, notes: '' }],
+    variable_dues:       [{ id: null, date: '', amount: 0, notes: '' }],
 })
 
 const form = ref(defaultForm())
@@ -591,11 +626,22 @@ const form = ref(defaultForm())
 const markPaidModal = ref({ show: false, due: null, paid_date: '', notes: '', saving: false })
 
 // ── Load data when modal opens ────────────────────────────────────────────────
+// Fix: the parent (Properties/Index.vue) mounts this component with
+// `v-if="installmentProperty"`, and sets `installmentProperty` and `show=true`
+// together in the same click handler. That means on the FIRST open of the
+// modal for a property, this component is freshly created with `show` already
+// `true` from the moment it exists — there is no false→true transition for a
+// plain watch() to detect, so loadPlan() never ran on first open, and the form
+// just sat on its hardcoded default ('regular', empty dates) until the user
+// closed and reopened it (a real false→true transition, which the watcher
+// does catch). `immediate: true` also runs the callback once immediately on
+// setup, using props.show's value at that moment — which fixes exactly this
+// case, without changing behavior for later opens/closes.
 watch(() => props.show, async (val) => {
     if (!val) return
     activeTab.value = 'plan'
     await loadPlan()
-})
+}, { immediate: true })
 
 async function loadPlan() {
     loading.value = true
@@ -634,12 +680,38 @@ async function loadPlan() {
                 maintenance_count:   p.maintenance_count ?? 1,
                 maintenance_interval: p.maintenance_interval ?? 'monthly',
                 variable_dues:       dues.value.length && p.installment_type === 'variable'
-                    ? dues.value.map(d => ({ date: d.due_date, amount: d.amount, notes: d.notes ?? '' }))
+                    // Fix: due_date comes back from the backend as a full
+                    // ISO timestamp string (e.g. "2025-12-01T00:00:00.000000Z")
+                    // because PropertyInstallmentDue casts due_date as 'date'.
+                    // The native <input type="date"> this feeds requires
+                    // exactly YYYY-MM-DD — given the full timestamp, it
+                    // silently renders blank instead of showing an error, which
+                    // is why amounts appeared correctly but every date field
+                    // looked empty. .slice(0, 10) matches this project's own
+                    // documented pattern for this exact Laravel/Inertia
+                    // date-serialization quirk.
+                    //
+                    // `id` is round-tripped here (and sent back on save) so
+                    // the backend can recognize "this row, edited" instead of
+                    // matching purely by date — editing a row's date used to
+                    // look identical to deleting it and adding a new one,
+                    // which is exactly the duplicate-row bug this fixes.
+                    ? dues.value.map(d => ({ id: d.id, date: d.due_date ? String(d.due_date).slice(0, 10) : '', amount: d.amount, notes: d.notes ?? '', status: d.status }))
                     : [{ date: '', amount: '', notes: '' }],
             }
+
+            // Snapshot of every paid row as originally loaded, used at save
+            // time to detect whether the user actually changed a paid row's
+            // values — see savePlan()'s confirmation below.
+            paidSnapshot.value = Object.fromEntries(
+                form.value.variable_dues
+                    .filter(r => r.status === 'paid' && r.id)
+                    .map(r => [r.id, { date: r.date, amount: String(r.amount), notes: r.notes }])
+            )
         } else {
             form.value = defaultForm()
             form.value.currency = data.currency ?? 'EGP'
+            paidSnapshot.value = {}
         }
     } catch (e) {
         console.error(e)
@@ -700,6 +772,18 @@ function validate() {
     return errors
 }
 
+// A paid row can now be edited (confirmed product decision — this is a
+// Property Management tool, not an accounting ledger), but changing one
+// affects paid totals shown elsewhere, so we confirm with the user first —
+// only when something about a paid row actually changed, not on every save.
+function changedPaidRows() {
+    return form.value.variable_dues.filter(r => {
+        if (!r.id || !paidSnapshot.value[r.id]) return false
+        const before = paidSnapshot.value[r.id]
+        return before.date !== r.date || before.amount !== String(r.amount) || before.notes !== r.notes
+    })
+}
+
 // ── Save Plan ─────────────────────────────────────────────────────────────────
 async function savePlan() {
     const errors = validate()
@@ -707,6 +791,13 @@ async function savePlan() {
         alert(errors.join('\n'))
         return
     }
+
+    if (form.value.installment_type === 'variable' && changedPaidRows().length > 0) {
+        if (!confirm('You\'ve changed a paid installment — this will affect your paid totals. Continue?')) {
+            return
+        }
+    }
+
     saving.value = true
     try {
         const payload = { ...form.value }
@@ -716,6 +807,25 @@ async function savePlan() {
         )
         dues.value = data.dues ?? []
         activeTab.value = 'schedule'
+
+        // Refresh the Installment Plan tab's own row state with the real,
+        // saved ids too — not just the Payment Schedule tab's `dues` list.
+        // Without this, a row that was freshly inserted by the save above
+        // would still show `id: null` in form.value.variable_dues if the
+        // user flips back to the Installment Plan tab and edits again
+        // without closing/reopening the modal, which would reproduce the
+        // exact "edit looks like delete + new row" bug this fix addresses.
+        if (form.value.installment_type === 'variable') {
+            form.value.variable_dues = dues.value
+                .filter(d => d.due_type === 'variable')
+                .map(d => ({ id: d.id, date: d.due_date ? String(d.due_date).slice(0, 10) : '', amount: d.amount, notes: d.notes ?? '', status: d.status }))
+
+            paidSnapshot.value = Object.fromEntries(
+                form.value.variable_dues
+                    .filter(r => r.status === 'paid' && r.id)
+                    .map(r => [r.id, { date: r.date, amount: String(r.amount), notes: r.notes }])
+            )
+        }
     } catch (e) {
         alert(e?.response?.data?.message ?? 'Save failed. Please check the form.')
     } finally {
@@ -731,7 +841,7 @@ function removeRow(idx) {
     form.value.installment_rows.splice(idx, 1)
 }
 function addVariableRow() {
-    form.value.variable_dues.push({ date: '', amount: 0, notes: '' })
+    form.value.variable_dues.push({ id: null, date: '', amount: 0, notes: '' })
 }
 function removeVariableRow(idx) {
     form.value.variable_dues.splice(idx, 1)
@@ -750,6 +860,7 @@ async function importExcel(e) {
         )
         if (data.rows?.length) {
             form.value.variable_dues = data.rows.map(r => ({
+                id:     null,
                 date:   r.date,
                 amount: r.amount,
                 notes:  r.notes ?? '',
@@ -794,6 +905,49 @@ async function submitMarkPaid() {
         alert('Failed to mark as paid.')
     } finally {
         markPaidModal.value.saving = false
+    }
+}
+
+// ── Mark Unpaid — undo, required before a paid row can be deleted ──────────────
+// Mirror of submitMarkPaid()/openMarkPaid() above, but no modal needed since
+// there's nothing to fill in — it just clears paid_date and reverts status to
+// whatever the daily overdue job would have set it to by now (overdue if
+// due_date has passed, pending otherwise). Once this succeeds, the row's
+// status flips away from 'paid' and the delete button reappears for it.
+async function markUnpaid(due) {
+    if (!confirm('Mark this installment as unpaid? You can then delete it if needed.')) return
+
+    try {
+        const { data } = await axios.patch(
+            route('company.properties.installments.mark-unpaid', [props.company.id, props.property.id, due.id])
+        )
+        const idx = dues.value.findIndex(d => d.id === due.id)
+        if (idx !== -1) dues.value[idx] = data.due
+    } catch (e) {
+        alert(e.response?.data?.message || 'Failed to mark as unpaid.')
+    }
+}
+
+// ── Delete a single due row ─────────────────────────────────────────────────────
+// This is a deliberate, explicit action — separate from savePlan()'s bulk
+// reconciliation, which never deletes a paid row and only quietly removes a
+// still-pending row that disappeared from a resubmitted form. That protects
+// against accidental loss during an unrelated edit, but it isn't a way to
+// intentionally remove one specific row that's genuinely wrong. This is that
+// intentional path. The delete button is hidden entirely for 'paid' rows (see
+// markUnpaid() above — un-paying is now a required, separate first step), and
+// the backend enforces the same rule independently, so the try/catch here is
+// just a safety net in case a 'paid' row's status changed in another tab.
+async function deleteDue(due) {
+    if (!confirm('Delete this installment due? This cannot be undone.')) return
+
+    try {
+        await axios.delete(
+            route('company.properties.installments.delete-due', [props.company.id, props.property.id, due.id])
+        )
+        dues.value = dues.value.filter(d => d.id !== due.id)
+    } catch (e) {
+        alert(e.response?.data?.message || 'Failed to delete this installment.')
     }
 }
 

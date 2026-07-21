@@ -15,6 +15,9 @@ class PropertyInstallmentDue extends Model
         'due_date',
         'amount',
         'currency',
+        'base_amount',
+        'base_currency',
+        'fx_rate_used',
         'status',
         'paid_date',
         'notes',
@@ -22,10 +25,12 @@ class PropertyInstallmentDue extends Model
     ];
 
     protected $casts = [
-        'due_date'   => 'date',
-        'paid_date'  => 'date',
-        'amount'     => 'decimal:2',
-        'sort_order' => 'integer',
+        'due_date'     => 'date',
+        'paid_date'    => 'date',
+        'amount'       => 'decimal:2',
+        'base_amount'  => 'decimal:2',
+        'fx_rate_used' => 'decimal:6',
+        'sort_order'   => 'integer',
     ];
 
     // ── Status Constants ─────────────────────────────────────────────────────
@@ -79,6 +84,18 @@ class PropertyInstallmentDue extends Model
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    /**
+     * Flip any 'pending' due whose due_date has passed to 'overdue'.
+     * Never touches 'paid' rows. Intended to be called once daily by the
+     * scheduled command (see App\Console\Commands\MarkOverdueRecords).
+     */
+    public static function autoMarkOverdue(): int
+    {
+        return static::where('status', self::STATUS_PENDING)
+            ->where('due_date', '<', now()->toDateString())
+            ->update(['status' => self::STATUS_OVERDUE]);
+    }
 
     public function typeLabel(): string
     {

@@ -16,6 +16,9 @@ class PropertyExpense extends Model
         'expense_date',
         'expense_amount',
         'currency',
+        'base_amount',
+        'base_currency',
+        'fx_rate_used',
         'fx_rate',
         'notes',
         'status',
@@ -25,6 +28,8 @@ class PropertyExpense extends Model
     protected $casts = [
         'expense_date'   => 'date',
         'expense_amount' => 'decimal:2',
+        'base_amount'    => 'decimal:2',
+        'fx_rate_used'   => 'decimal:6',
         'fx_rate'        => 'decimal:6',
     ];
 
@@ -57,6 +62,18 @@ class PropertyExpense extends Model
     public function payments(): HasMany
     {
         return $this->hasMany(PropertyExpensePayment::class)->orderBy('payment_date');
+    }
+
+    /**
+     * The forecasted payment schedule repeater — % / amount / forecasted
+     * date per row. May be empty (older expenses created before this
+     * feature, or an expense the user never bothered to split) — see
+     * ExpensePaymentScheduleService for how Cash Forecast falls back when
+     * there's no schedule at all.
+     */
+    public function paymentSchedule(): HasMany
+    {
+        return $this->hasMany(PropertyExpensePaymentSchedule::class)->orderBy('forecasted_date');
     }
 
     public function createdBy(): BelongsTo

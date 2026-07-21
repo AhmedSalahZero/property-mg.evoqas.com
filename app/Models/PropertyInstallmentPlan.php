@@ -2,7 +2,7 @@
 
 namespace App\Models;
 
-use Carbon\Carbon;
+use App\Services\CurrencyConversionService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -73,131 +73,170 @@ class PropertyInstallmentPlan extends Model
     // ── Schedule Generation ──────────────────────────────────────────────────
 
     /**
-     * Delete all existing dues for this plan and regenerate from plan data.
+     * Reconcile property_installment_dues against the plan's current data.
+     *
      * For variable type, dues are saved directly by the controller — skip generation.
+     *
+     * This used to unconditionally `$this->dues()->delete()` every single save,
+     * destroying every 'paid' marker and paid_date the moment the plan was
+     * edited at all. That was audit finding C2. It now instead reconciles the
+     * newly-computed schedule against existing rows, matched by (due_type,
+     * due_date) — the natural, stable identity of a generated due:
+     *
+     *   - A matching row that is already 'paid' is left completely untouched.
+     *   - A matching row still 'pending' has its amount/currency/sort_order
+     *     refreshed (nothing real has happened against it yet).
+     *   - No match → a new 'pending' row is inserted.
+     *   - Any row still 'pending' that no longer appears in the freshly
+     *     computed schedule (e.g. a repeater row was removed or its count
+     *     reduced) is deleted. Rows already 'paid' or 'overdue' are NEVER
+     *     removed this way, even if they fall outside the new schedule.
+     *
+     * Known limitation: matching is by (due_type, due_date). If two separate
+     * installment rows in the repeater ever land on the exact same month for
+     * the same due_type (an unusual plan shape), they can collide in the
+     * matching key. This is a large improvement over full destruction, but
+     * isn't a perfect diff — spot-check the due list after unusual repeater
+     * edits.
      */
     public function generateDues(): void
     {
-        $this->dues()->delete();
-
         if ($this->installment_type === 'variable') {
             return; // variable dues come from controller directly
         }
 
+        // Fix for audit finding F-2 — the reconciliation below is a
+        // get/update/insert/delete sequence against property_installment_dues
+        // with no transaction wrapping it. A failure partway through (a bad
+        // date, a DB hiccup) could leave the due schedule half-updated —
+        // some rows refreshed, some not yet inserted. See the same fix on
+        // RentContract::generateSchedules() for the identical reasoning.
+        \DB::transaction(function () {
+            $this->generateDuesBody();
+        });
+    }
+
+    private function generateDuesBody(): void
+    {
         $currency = $this->currency ?? 'EGP';
-        $rows     = [];
-        $sort     = 0;
 
-        // ── Signing ──────────────────────────────────────────────────────────
-        if (!empty($this->signing_amount) && (float)$this->signing_amount > 0 && !empty($this->signing_date)) {
-            $rows[] = $this->buildRow('signing', $this->signing_date, (float)$this->signing_amount, $currency, $sort++);
-        }
+        // Fix (July 2026) — the actual date/amount generation (signing,
+        // reservation, installment rows, annual, delivery, maintenance) now
+        // lives in InstallmentScheduleGenerator, shared with the Investment
+        // Decision Tool's Seller/Developer Installments funding path, so
+        // both always agree on how a Regular-mode plan turns into dates.
+        // Everything below this point — deduplication-by-suffix, sort
+        // order, and reconciliation against the database — is unchanged
+        // from before the extraction.
+        $generatedRows = \App\Services\InstallmentScheduleGenerator::generateRows([
+            'signing_amount'          => $this->signing_amount,
+            'signing_date'            => $this->signing_date,
+            'reservation_amount'      => $this->reservation_amount,
+            'reservation_date'        => $this->reservation_date,
+            'installment_rows'        => $this->installment_rows,
+            'has_annual'              => $this->has_annual,
+            'annual_start_date'       => $this->annual_start_date,
+            'annual_amount'           => $this->annual_amount,
+            'annual_count'            => $this->annual_count,
+            'has_delivery'            => $this->has_delivery,
+            'delivery_start_date'     => $this->delivery_start_date,
+            'delivery_amount'         => $this->delivery_amount,
+            'delivery_count'          => $this->delivery_count,
+            'delivery_interval'       => $this->delivery_interval,
+            'has_maintenance'         => $this->has_maintenance,
+            'maintenance_start_date'  => $this->maintenance_start_date,
+            'maintenance_amount'      => $this->maintenance_amount,
+            'maintenance_count'       => $this->maintenance_count,
+            'maintenance_interval'    => $this->maintenance_interval,
+        ]);
 
-        // ── Reservation ──────────────────────────────────────────────────────
-        if (!empty($this->reservation_amount) && (float)$this->reservation_amount > 0 && !empty($this->reservation_date)) {
-            $rows[] = $this->buildRow('reservation', $this->reservation_date, (float)$this->reservation_amount, $currency, $sort++);
-        }
+        $desired = []; // due_type|due_date(#...) => ['due_type'=>, 'due_date'=>, 'amount'=>]
+        $order   = []; // same keys => first-seen order
+        $sort    = 0;
 
-        // ── Installment rows (repeater) ───────────────────────────────────────
-        foreach ($this->installment_rows ?? [] as $row) {
-            $amount = (float)($row['amount'] ?? 0);
-            $count  = (int)($row['count'] ?? 0);
-            if ($amount <= 0 || $count <= 0 || empty($row['start_date'])) continue;
-
-            $months  = $this->intervalMonths($row['interval'] ?? 'monthly');
-            $current = $this->parseMonthYear($row['start_date']);
-
-            for ($i = 0; $i < $count; $i++) {
-                $rows[] = $this->buildRow('installment', $current->format('m/Y'), $amount, $currency, $sort++);
-                $current->addMonths($months);
+        foreach ($generatedRows as $row) {
+            $key = $row['due_type'] . '|' . $row['due_date'];
+            // If two generated rows land on the same (type, date) — e.g. two
+            // repeater rows overlapping — keep them distinct by suffixing the
+            // key, rather than silently merging/overwriting one with the other.
+            while (isset($desired[$key])) {
+                $key .= '#';
             }
+            $desired[$key] = $row;
+            $order[$key]   = $sort++;
         }
 
-        // ── Annual ────────────────────────────────────────────────────────────
-        if ($this->has_annual
-            && !empty($this->annual_amount) && (float)$this->annual_amount > 0
-            && !empty($this->annual_start_date)
-            && (int)$this->annual_count > 0
-        ) {
-            $current = $this->parseMonthYear($this->annual_start_date);
-            for ($i = 0; $i < (int)$this->annual_count; $i++) {
-                $rows[] = $this->buildRow('annual', $current->format('m/Y'), (float)$this->annual_amount, $currency, $sort++);
-                $current->addYear();
+        // ── Reconcile against existing rows ─────────────────────────────────
+        $existing = $this->dues()->get()
+            ->keyBy(fn ($d) => $d->due_type . '|' . $d->due_date->format('Y-m-d'));
+
+        $fx           = app(CurrencyConversionService::class);
+        $baseCurrency = $this->company?->currency ?: 'EGP';
+
+        $keepIds  = [];
+        $toInsert = [];
+
+        foreach ($desired as $key => $row) {
+            // Strip the disambiguation suffix ('#') added above for duplicate
+            // (type, date) pairs — it isn't part of the real matching key.
+            $matchKey = rtrim($key, '#');
+            $match    = $existing->get($matchKey);
+
+            // Fix for audit C4 — convert to the company's base currency using
+            // the plan's own currency and this due's date.
+            $conversion = $fx->convert($this->company_id, $baseCurrency, $row['amount'], $currency, $row['due_date']);
+
+            if ($match && $match->status !== PropertyInstallmentDue::STATUS_PENDING) {
+                // Already paid, or aged into overdue — historical fact, don't touch.
+                $keepIds[] = $match->id;
+                $existing->forget($matchKey); // don't let a second desired row match the same paid row
+                continue;
             }
-        }
 
-        // ── Delivery ──────────────────────────────────────────────────────────
-        if ($this->has_delivery
-            && !empty($this->delivery_amount) && (float)$this->delivery_amount > 0
-            && !empty($this->delivery_start_date)
-            && (int)$this->delivery_count > 0
-        ) {
-            $months  = $this->intervalMonths($this->delivery_interval ?? 'monthly');
-            $current = $this->parseMonthYear($this->delivery_start_date);
-            for ($i = 0; $i < (int)$this->delivery_count; $i++) {
-                $rows[] = $this->buildRow('delivery', $current->format('m/Y'), (float)$this->delivery_amount, $currency, $sort++);
-                $current->addMonths($months);
+            if ($match) {
+                $match->update([
+                    'amount'        => $row['amount'],
+                    'currency'      => $currency,
+                    'base_amount'   => $conversion['base_amount'],
+                    'base_currency' => $conversion['base_currency'],
+                    'fx_rate_used'  => $conversion['fx_rate_used'],
+                    'sort_order'    => $order[$key],
+                ]);
+                $keepIds[] = $match->id;
+                $existing->forget($matchKey);
+                continue;
             }
+
+            $toInsert[] = [
+                'company_id'    => $this->company_id,
+                'property_id'   => $this->property_id,
+                'plan_id'       => $this->id,
+                'due_type'      => $row['due_type'],
+                'due_date'      => $row['due_date'],
+                'amount'        => $row['amount'],
+                'currency'      => $currency,
+                'base_amount'   => $conversion['base_amount'],
+                'base_currency' => $conversion['base_currency'],
+                'fx_rate_used'  => $conversion['fx_rate_used'],
+                'status'        => 'pending',
+                'paid_date'     => null,
+                'notes'         => null,
+                'sort_order'    => $order[$key],
+                'created_at'    => now(),
+                'updated_at'    => now(),
+            ];
         }
 
-        // ── Maintenance ───────────────────────────────────────────────────────
-        if ($this->has_maintenance
-            && !empty($this->maintenance_amount) && (float)$this->maintenance_amount > 0
-            && !empty($this->maintenance_start_date)
-            && (int)$this->maintenance_count > 0
-        ) {
-            $months  = $this->intervalMonths($this->maintenance_interval ?? 'monthly');
-            $current = $this->parseMonthYear($this->maintenance_start_date);
-            for ($i = 0; $i < (int)$this->maintenance_count; $i++) {
-                $rows[] = $this->buildRow('maintenance', $current->format('m/Y'), (float)$this->maintenance_amount, $currency, $sort++);
-                $current->addMonths($months);
-            }
+        if (!empty($toInsert)) {
+            PropertyInstallmentDue::insert($toInsert);
         }
 
-        // Bulk insert
-        if (!empty($rows)) {
-            PropertyInstallmentDue::insert($rows);
-        }
-    }
-
-    // ── Helpers ──────────────────────────────────────────────────────────────
-
-    private function buildRow(string $type, string $monthYear, float $amount, string $currency, int $sort): array
-    {
-        $date = $this->parseMonthYear($monthYear);
-        return [
-            'company_id'  => $this->company_id,
-            'property_id' => $this->property_id,
-            'plan_id'     => $this->id,
-            'due_type'    => $type,
-            'due_date'    => $date->startOfMonth()->toDateString(),
-            'amount'      => $amount,
-            'currency'    => $currency,
-            'status'      => 'pending',
-            'paid_date'   => null,
-            'notes'       => null,
-            'sort_order'  => $sort,
-            'created_at'  => now(),
-            'updated_at'  => now(),
-        ];
-    }
-
-    private function parseMonthYear(string $value): Carbon
-    {
-        // Accepts MM/YYYY or YYYY-MM
-        if (str_contains($value, '/')) {
-            [$m, $y] = explode('/', $value);
-            return Carbon::createFromDate((int)$y, (int)$m, 1);
-        }
-        return Carbon::parse($value . '-01');
-    }
-
-    private function intervalMonths(string $interval): int
-    {
-        return match ($interval) {
-            'quarterly'     => 3,
-            'semi_annually' => 6,
-            default         => 1, // monthly
-        };
+        // Remove obsolete rows — but ONLY ones still pending. Paid/overdue rows
+        // are history and must survive even if they fell outside the newly
+        // computed schedule (see "Known limitation" in the docblock above).
+        $this->dues()
+            ->whereNotIn('id', $keepIds)
+            ->where('status', 'pending')
+            ->delete();
     }
 }

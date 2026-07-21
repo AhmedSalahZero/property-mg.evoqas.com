@@ -32,6 +32,10 @@ class PropertyUnit extends Model
         'depreciation_duration_months',
         'is_active',
         'sort_order',
+        'acquisition_cost_base_amount',
+        'book_value_base_amount',
+        'base_currency',
+        'fx_rate_used',
     ];
 
     protected $casts = [
@@ -43,6 +47,9 @@ class PropertyUnit extends Model
         'depreciation_duration_months'=> 'integer',
         'is_active'                   => 'boolean',
         'sort_order'                  => 'integer',
+        'acquisition_cost_base_amount'=> 'decimal:2',
+        'book_value_base_amount'      => 'decimal:2',
+        'fx_rate_used'                => 'decimal:6',
     ];
 
     // ── Slot type constants ──────────────────────────────────────────────────

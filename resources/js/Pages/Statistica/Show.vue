@@ -1,7 +1,7 @@
 <template>
   <Head :title="`${series.name} — Statistica`" />
   <AuthenticatedLayout>
-    <div class="min-h-screen bg-gray-950 text-white">
+    <div class="min-h-screen bg-[#0C1829] text-white">
 
       <!-- PAGE HEADER -->
       <div class="bg-[#0C1829] border-b border-gray-800">
@@ -28,14 +28,14 @@
             <div class="flex items-center gap-2 flex-shrink-0">
               <template v-if="canEdit">
                 <button @click="importModal.show = true"
-                  class="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm px-3 py-2 rounded-lg transition-colors">
+                  class="flex items-center gap-1.5 bg-[#112240] hover:bg-blue-700 border border-gray-700 text-gray-300 text-sm px-3 py-2 rounded-lg transition-colors">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" />
                   </svg>
                   Import CSV / Excel
                 </button>
                 <a :href="`/companies/${props.company.id}/statistica/template`"
-                  class="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm px-3 py-2 rounded-lg transition-colors">
+                  class="flex items-center gap-1.5 bg-[#112240] hover:bg-blue-700 border border-gray-700 text-gray-300 text-sm px-3 py-2 rounded-lg transition-colors">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
@@ -50,7 +50,7 @@
                 </button>
               </template>
               <!-- Read-only badge -->
-              <span v-if="!canEdit" class="flex items-center gap-1.5 bg-gray-800 border border-gray-700 text-gray-400 text-xs font-medium px-3 py-2 rounded-lg">
+              <span v-if="!canEdit" class="flex items-center gap-1.5 bg-[#112240] border border-gray-700 text-gray-400 text-xs font-medium px-3 py-2 rounded-lg">
                 <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/>
@@ -71,7 +71,7 @@
 
         <!-- KPI CARDS ROW -->
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div class="bg-[#112240] border border-[#21518B] rounded-xl p-4">
             <p class="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-1">Latest Value</p>
             <p class="text-2xl font-bold text-white tabular-nums">
               {{ latestEntry ? formatValue(latestEntry.value) : '—' }}
@@ -79,21 +79,21 @@
             </p>
             <p class="text-gray-500 text-xs mt-0.5">{{ latestEntry ? formatDate(latestEntry.entry_date) : 'No data' }}</p>
           </div>
-          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div class="bg-[#112240] border border-[#21518B] rounded-xl p-4">
             <p class="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-1">Period Change</p>
             <p class="text-2xl font-bold tabular-nums" :class="popChange >= 0 ? 'text-green-400' : 'text-red-400'">
               {{ popChange !== null ? (popChange >= 0 ? '+' : '') + popChange.toFixed(4) : '—' }}
             </p>
             <p class="text-gray-500 text-xs mt-0.5">{{ popChangePct !== null ? (popChangePct >= 0 ? '+' : '') + popChangePct.toFixed(2) + '%' : '' }}</p>
           </div>
-          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div class="bg-[#112240] border border-[#21518B] rounded-xl p-4">
             <p class="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-1">Data Points</p>
             <p class="text-2xl font-bold text-white">{{ entries.length }}</p>
             <p class="text-gray-500 text-xs mt-0.5">
               {{ entries.length > 0 ? formatDate(entries[0].entry_date) + ' → ' + formatDate(entries[entries.length-1].entry_date) : 'No range' }}
             </p>
           </div>
-          <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div class="bg-[#112240] border border-[#21518B] rounded-xl p-4">
             <p class="text-xs font-semibold text-blue-400 uppercase tracking-wider mb-1">YoY Change</p>
             <p v-if="lastYoy" class="text-2xl font-bold tabular-nums" :class="lastYoy >= 0 ? 'text-green-400' : 'text-red-400'">
               {{ (lastYoy >= 0 ? '+' : '') + lastYoy.toFixed(1) }}%
@@ -104,7 +104,7 @@
         </div>
 
         <!-- CHART + FORECAST PANEL -->
-        <div class="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-6">
+        <div class="bg-[#112240] border border-[#21518B] rounded-xl p-5 mb-6">
           <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
             <h2 class="text-white font-semibold">Historical Chart</h2>
             <div class="flex flex-wrap items-center gap-3">
@@ -124,10 +124,10 @@
               <!-- Custom date range -->
               <div class="flex items-center gap-1.5">
                 <input v-model="customStart" type="date"
-                  class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-gray-200 text-xs focus:outline-none focus:border-blue-500" />
+                  class="bg-[#112240] border border-[#21518B] rounded-lg px-2 py-1 text-gray-200 text-xs focus:outline-none focus:border-blue-500" />
                 <span class="text-gray-500 text-xs">→</span>
                 <input v-model="customEnd" type="date"
-                  class="bg-gray-800 border border-gray-700 rounded-lg px-2 py-1 text-gray-200 text-xs focus:outline-none focus:border-blue-500" />
+                  class="bg-[#112240] border border-[#21518B] rounded-lg px-2 py-1 text-gray-200 text-xs focus:outline-none focus:border-blue-500" />
                 <button @click="applyCustomRange"
                   class="px-2.5 py-1 text-xs font-medium rounded-lg bg-indigo-700 hover:bg-indigo-600 text-white transition-colors">
                   Apply
@@ -228,11 +228,11 @@
               <div v-if="tooltip.visible && chartSvgRef"
                 class="fixed z-50 pointer-events-none"
                 :style="tooltipStyle">
-                <div class="bg-gray-900 border border-gray-600 rounded-xl shadow-2xl px-3.5 py-2.5 min-w-[140px]">
+                <div class="bg-[#112240] border border-[#21518B] rounded-xl shadow-2xl px-3.5 py-2.5 min-w-[140px]">
                   <p class="text-gray-400 text-xs mb-1 font-mono">{{ formatDate(tooltip.date) }}</p>
                   <div class="flex items-baseline gap-1.5">
                     <span class="text-white font-bold text-base tabular-nums">{{ formatValue(tooltip.value) }}</span>
-                    <span class="text-gray-400 text-xs">{{ series.unit }}</span>
+                    <span class="text-gray-200 text-xs">{{ series.unit }}</span>
                   </div>
                   <p v-if="tooltip.isForecast" class="text-indigo-400 text-xs mt-1 font-medium">✨ Forecast</p>
                   <div v-if="tooltip.isForecast && tooltip.upper !== null" class="text-gray-500 text-xs mt-0.5">
@@ -296,7 +296,7 @@
         <!-- DATA TABLE + FORECAST TABLE GRID -->
         <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
           <!-- ENTRIES TABLE -->
-          <div class="xl:col-span-2 bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="xl:col-span-2 bg-[#112240] border border-[#21518B] rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between gap-3">
               <h2 class="text-white font-semibold">Historical Data</h2>
               <div class="flex items-center gap-3">
@@ -323,8 +323,8 @@
             </div>
             <div class="overflow-y-auto" style="max-height: 520px;">
               <table class="w-full text-sm">
-                <thead class="sticky top-0 bg-gray-900">
-                  <tr class="border-b border-gray-800">
+                <thead class="sticky top-0 bg-[#0C1829]">
+                  <tr class="border-b border-[#1490A8]">
                     <th v-if="canEdit" class="px-4 py-3 w-8">
                       <input type="checkbox" :checked="allSelected" :indeterminate="someSelected"
                         @change="toggleSelectAll"
@@ -386,7 +386,7 @@
           </div>
 
           <!-- FORECAST TABLE -->
-          <div class="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+          <div class="bg-[#112240] border border-[#21518B] rounded-xl overflow-hidden">
             <div class="px-5 py-4 border-b border-gray-800">
               <h2 class="text-white font-semibold flex items-center gap-2">
                 <span class="text-indigo-400">✨</span>

@@ -14,8 +14,32 @@
               <h1 class="text-xl font-bold" style="color: var(--fv-text-primary);">Property Dashboard</h1>
               <p class="text-xs mt-0.5" style="color: var(--fv-text-muted);">Portfolio analytics & financial performance</p>
             </div>
-            <!-- Date range -->
+            <!-- Date range + currency -->
             <div class="flex items-center gap-3 flex-wrap">
+              <div class="inline-flex items-center gap-2 px-3 py-2 rounded-lg"
+                style="background: var(--fv-bg-input); border: 1px solid var(--fv-border);">
+                <span class="text-xs" style="color: var(--fv-text-muted);">💱</span>
+                <select v-model="viewCurrency" @change="loadData" class="bg-transparent text-sm focus:outline-none"
+                  style="color: var(--fv-text-primary);">
+                  <option value="">{{ baseCurrency }} (Functional)</option>
+                  <option v-for="c in availableCurrencies.filter(c => c !== baseCurrency)" :key="c" :value="c">
+                    {{ c }} only
+                  </option>
+                </select>
+                <!-- Fix for audit finding M-4 — the app deliberately uses two
+                     different FX rules: headline totals here always use the
+                     LATEST exchange rate on file ("what is this worth
+                     today"), while each individual transaction's own stored
+                     amount was converted at the rate in effect on ITS OWN
+                     date when it was first recorded. Both are correct by
+                     design, but a reader comparing a dashboard total to a
+                     transaction detail elsewhere can see two different
+                     converted figures for what looks like the same money.
+                     This tooltip makes that visible instead of leaving it
+                     to a code comment only a developer would ever read. -->
+                <span class="text-xs cursor-help" style="color: var(--fv-text-muted);"
+                  title="Totals on this dashboard always use the latest exchange rate on file (today's value). Individual transactions elsewhere in the app keep the rate that applied on their own date, so the same amount can show slightly differently in the two places — both are correct, just answering a different question.">ⓘ</span>
+              </div>
               <div class="inline-flex items-center gap-2 px-3 py-2 rounded-lg"
                 style="background: var(--fv-bg-input); border: 1px solid var(--fv-border);">
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--fv-blue);">
@@ -33,6 +57,18 @@
                 Properties
               </Link>
             </div>
+          </div>
+
+          <div v-if="!isFunctionalView" class="mt-3 px-4 py-2 rounded-lg text-xs"
+            style="background:rgba(186,117,23,0.1); border:1px solid rgba(186,117,23,0.3); color:#BA7517;">
+            Showing <strong>{{ viewCurrency }} only</strong> — raw figures in this currency alone. NOI,
+            margin, and portfolio valuation figures that mix currencies are hidden in this view.
+          </div>
+          <div v-if="isFunctionalView && unconvertedCurrencies.length" class="mt-3 px-4 py-2 rounded-lg text-xs"
+            style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); color:#f87171;">
+            💱 {{ unconvertedCurrencies.join(', ') }} {{ unconvertedCurrencies.length > 1 ? 'have' : 'has' }} no
+            exchange rate on file — those amounts are excluded from the totals below until a rate is added
+            under Company Settings → Exchange Rates.
           </div>
 
           <!-- ── TAB NAV ────────────────────────────────────────────── -->
@@ -100,12 +136,8 @@
           <!-- KPI Strip -->
           <p class="text-xs font-semibold uppercase tracking-widest mb-3" style="color: var(--fv-gold);">Portfolio Summary</p>
           <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 mb-6">
-            <div v-for="kpi in portfolioKpis" :key="kpi.label" class="rounded-xl p-4"
-              style="background: var(--fv-bg-card); border: 1px solid var(--fv-border);">
-              <p class="text-xs font-semibold uppercase tracking-widest mb-1" :style="`color: ${kpi.color};`">{{ kpi.label }}</p>
-              <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ kpi.value }}</p>
-              <p class="text-xs mt-1" style="color: var(--fv-text-muted);">{{ kpi.sub }}</p>
-            </div>
+            <KpiCard v-for="kpi in portfolioKpis" :key="kpi.label"
+              :label="kpi.label" :value="kpi.value" :sub="kpi.sub" :color="kpi.color" />
           </div>
 
           <!-- Financial cards -->
@@ -121,19 +153,19 @@
               <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ fmt(portfolio.total_book_value) }}</p>
               <p class="text-xs mt-1" style="color: var(--fv-text-muted);">Net after depreciation</p>
             </div>
-            <div class="rounded-xl p-5" style="background: var(--fv-bg-card); border: 1px solid var(--fv-border);">
+            <div v-if="isFunctionalView" class="rounded-xl p-5" style="background: var(--fv-bg-card); border: 1px solid var(--fv-border);">
               <p class="text-xs font-semibold uppercase tracking-widest mb-2" style="color: #34d399;">Market Value</p>
               <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ fmt(portfolio.total_market_value) }}</p>
               <p class="text-xs mt-1" style="color: var(--fv-text-muted);">Latest valuations</p>
             </div>
-            <div class="rounded-xl p-5" :style="portfolio.unrealized_gain >= 0
+            <div v-if="isFunctionalView" class="rounded-xl p-5" :style="portfolio.unrealized_gain >= 0
               ? 'background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.25);'
               : 'background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.25);'">
               <p class="text-xs font-semibold uppercase tracking-widest mb-2" :style="portfolio.unrealized_gain >= 0 ? 'color: #34d399;' : 'color: #f87171;'">Unrealized Gain</p>
               <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ fmt(portfolio.unrealized_gain) }}</p>
               <p class="text-xs mt-1" style="color: var(--fv-text-muted);">Market vs Book value</p>
             </div>
-            <div class="rounded-xl p-5" :style="portfolio.roi_if_sold != null && portfolio.roi_if_sold >= 0
+            <div v-if="isFunctionalView" class="rounded-xl p-5" :style="portfolio.roi_if_sold != null && portfolio.roi_if_sold >= 0
               ? 'background: rgba(186,117,23,0.08); border: 1px solid rgba(186,117,23,0.30);'
               : 'background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.25);'">
               <p class="text-xs font-semibold uppercase tracking-widest mb-2" style="color: var(--fv-gold);">ROI if Sold</p>
@@ -142,6 +174,10 @@
               </p>
               <p class="text-xs mt-1" style="color: var(--fv-text-muted);">Unrealized gain ÷ cost</p>
             </div>
+            <p v-if="!isFunctionalView" class="text-xs italic col-span-2" style="color: var(--fv-text-muted);">
+              Market Value / Unrealized Gain / ROI if Sold aren't currency-filterable yet (property
+              valuations aren't part of the multi-currency conversion) — shown only in {{ baseCurrency }} functional view.
+            </p>
           </div>
 
           <!-- Occupancy table -->
@@ -605,6 +641,26 @@
             </div>
           </div>
 
+          <!-- Direct vs Corporate split -->
+          <div v-if="expenses.by_source" class="rounded-xl overflow-hidden mb-6" style="background: var(--fv-bg-card); border: 1px solid var(--fv-border);">
+            <div class="px-5 py-3" style="border-bottom: 1px solid var(--fv-border);">
+              <p class="text-xs font-semibold uppercase tracking-widest" style="color: var(--fv-text-muted);">Direct vs Corporate (Allocated)</p>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x" style="border-color: var(--fv-border);">
+              <div v-for="src in expenses.by_source" :key="src.label" class="p-4">
+                <p class="text-sm font-semibold mb-2" style="color: var(--fv-text-primary);">{{ src.label }}</p>
+                <div class="flex items-center justify-between text-xs mb-1">
+                  <span style="color: var(--fv-text-muted);">Committed</span>
+                  <span class="font-semibold" style="color: var(--fv-text-primary);">{{ fmt(src.committed) }}</span>
+                </div>
+                <div class="flex items-center justify-between text-xs">
+                  <span style="color: var(--fv-text-muted);">Paid</span>
+                  <span class="font-semibold" style="color: #34d399;">{{ fmt(src.paid) }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Monthly trend chart -->
           <div class="rounded-xl p-6 mb-6" style="background: var(--fv-bg-card); border: 1px solid var(--fv-border);">
             <p class="text-xs font-semibold uppercase tracking-widest mb-4" style="color: var(--fv-text-muted);">Monthly Expense Trend</p>
@@ -646,6 +702,10 @@
                   </div>
                 </div>
                 <p v-if="!expenses.by_property?.length" class="text-xs text-center py-4" style="color: var(--fv-text-muted);">No expense data.</p>
+                <p v-if="expenses.by_property?.length && expenses.by_property_note"
+                   class="text-xs italic pt-2 mt-1" style="color: var(--fv-text-muted); border-top: 1px solid var(--fv-border);">
+                  ℹ️ {{ expenses.by_property_note }}
+                </p>
               </div>
             </div>
           </div>
@@ -665,6 +725,9 @@
             <div class="rounded-xl p-4" style="background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.25);">
               <p class="text-xs font-semibold uppercase tracking-widest mb-1" style="color: #f87171;">Expenses</p>
               <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ fmt(profitability.total_expenses) }}</p>
+              <p class="text-[11px] mt-1" style="color: var(--fv-text-muted);">
+                Direct {{ fmt(profitability.direct_expenses) }} · Corporate {{ fmt(profitability.corporate_expenses) }}
+              </p>
             </div>
             <div class="rounded-xl p-4"
               :style="profitability.noi >= 0 ? 'background: rgba(16,185,129,0.08); border: 1px solid rgba(16,185,129,0.30);' : 'background: rgba(239,68,68,0.08); border: 1px solid rgba(239,68,68,0.30);'">
@@ -672,11 +735,11 @@
               <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ fmt(profitability.noi) }}</p>
               <p class="text-xs mt-1" style="color: var(--fv-text-muted);">Margin: {{ profitability.noi_margin }}%</p>
             </div>
-            <div class="rounded-xl p-4" style="background: var(--fv-bg-card); border: 1px solid var(--fv-border);">
+            <div v-if="isFunctionalView" class="rounded-xl p-4" style="background: var(--fv-bg-card); border: 1px solid var(--fv-border);">
               <p class="text-xs font-semibold uppercase tracking-widest mb-1" style="color: #48C4D8;">Market Value</p>
               <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ fmt(profitability.total_market_value) }}</p>
             </div>
-            <div class="rounded-xl p-4"
+            <div v-if="isFunctionalView" class="rounded-xl p-4"
               :style="profitability.unrealized_gain >= 0 ? 'background: rgba(16,185,129,0.06); border: 1px solid rgba(16,185,129,0.20);' : 'background: rgba(239,68,68,0.06); border: 1px solid rgba(239,68,68,0.20);'">
               <p class="text-xs font-semibold uppercase tracking-widest mb-1" :style="profitability.unrealized_gain >= 0 ? 'color: #34d399;' : 'color: #f87171;'">Unrealized Gain</p>
               <p class="text-2xl font-bold" style="color: var(--fv-text-primary);">{{ fmt(profitability.unrealized_gain) }}</p>
@@ -713,7 +776,12 @@
                     onmouseout="this.style.background='transparent'">
                     <td class="px-5 py-2.5 font-medium" style="color: var(--fv-text-primary);">{{ p.property }}</td>
                     <td class="px-5 py-2.5 text-right font-semibold" style="color: #34d399;">{{ fmt(p.revenue) }}</td>
-                    <td class="px-5 py-2.5 text-right font-semibold" style="color: #f87171;">{{ fmt(p.expenses) }}</td>
+                    <td class="px-5 py-2.5 text-right font-semibold" style="color: #f87171;">
+                      {{ fmt(p.expenses) }}
+                      <span class="block text-[10px] font-normal" style="color: var(--fv-text-muted);" v-if="p.corporate_expenses">
+                        D {{ fmt(p.direct_expenses) }} · C {{ fmt(p.corporate_expenses) }}
+                      </span>
+                    </td>
                     <td class="px-5 py-2.5 text-right font-semibold" :style="p.noi >= 0 ? 'color: #34d399;' : 'color: #f87171;'">{{ fmt(p.noi) }}</td>
                     <td class="px-5 py-2.5 text-right text-xs" style="color: var(--fv-text-muted);">{{ p.noi_margin }}%</td>
                     <td class="px-5 py-2.5 text-right">
@@ -739,6 +807,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { Head, Link } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
+import KpiCard from '@/Components/Dashboard/KpiCard.vue'
 import axios from 'axios'
 
 const props = defineProps({
@@ -751,6 +820,16 @@ const loadError = ref(null)
 const dateFrom  = ref(new Date(new Date().getFullYear(), 0, 1).toISOString().slice(0, 10))
 const dateTo    = ref(new Date().toISOString().slice(0, 10))
 const activeTab = ref('portfolio')
+
+// ── Currency view ──────────────────────────────────────────────────────
+// '' = main functional currency (every currency converted at today's latest
+// rate and summed). Any other value = raw, unconverted figures for just that
+// one currency.
+const viewCurrency         = ref('')
+const baseCurrency         = ref('EGP')
+const availableCurrencies  = ref([])
+const isFunctionalView     = ref(true)
+const unconvertedCurrencies = ref([])
 
 const portfolio    = ref(null)
 const contracts    = ref(null)
@@ -982,7 +1061,7 @@ async function loadData() {
   Object.keys(chartInstances).forEach(k => { chartInstances[k]?.destroy(); delete chartInstances[k] })
   try {
     const { data } = await axios.get(route('company.properties.dashboard.data', props.company.id), {
-      params: { date_from: dateFrom.value, date_to: dateTo.value }
+      params: { date_from: dateFrom.value, date_to: dateTo.value, currency: viewCurrency.value || undefined }
     })
     portfolio.value     = data.portfolio
     contracts.value     = data.contracts
@@ -992,6 +1071,25 @@ async function loadData() {
     expenses.value      = data.expenses
     profitability.value = data.profitability
     insights.value      = data.insights || []
+    baseCurrency.value  = data.base_currency || 'EGP'
+    availableCurrencies.value = data.available_currencies || []
+    isFunctionalView.value    = data.is_functional_view ?? true
+    // Any of the per-tab payloads can surface currencies missing an exchange
+    // rate — merge them all into one list for the header warning banner.
+    // Fix for audit finding H-3 — 'portfolio' was missing from this list.
+    // Property/unit valuations (acquisition cost/book value/market value)
+    // now go through the same base-currency conversion as everything else
+    // (see perPropertyFinancials()), so a currency missing a rate needs to
+    // surface here too, not just for revenue/collections/installments/
+    // expenses/profitability.
+    unconvertedCurrencies.value = [...new Set([
+      ...(data.portfolio?.unconverted_currencies || []),
+      ...(data.revenues?.unconverted_currencies || []),
+      ...(data.collections?.unconverted_currencies || []),
+      ...(data.installments?.unconverted_currencies || []),
+      ...(data.expenses?.unconverted_currencies || []),
+      ...(data.profitability?.unconverted_currencies || []),
+    ])]
   } catch(e) {
     console.error(e)
     loadError.value = e?.response?.data?.message || e?.message || 'Failed to load dashboard data.'

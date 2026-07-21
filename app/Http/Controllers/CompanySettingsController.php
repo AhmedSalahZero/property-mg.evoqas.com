@@ -13,9 +13,12 @@ use App\Models\PropertyCategory;
 use App\Models\PropertyType;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use App\Http\Controllers\Concerns\AuthorizesCompany;
 
 class CompanySettingsController extends Controller
 {
+    use AuthorizesCompany;
+
     // ═══════════════════════════════════════════════════════════════════
     // MAIN PAGE — load all settings for a company
     // ═══════════════════════════════════════════════════════════════════
@@ -109,6 +112,7 @@ class CompanySettingsController extends Controller
     public function updateTenant(Request $request, Company $company, Customer $customer)
     {
         $this->authorizeCompany($company);
+        abort_unless($customer->company_id === $company->id, 404);
 
         $data = $request->validate([
             'customer_name'    => 'required|string|max:255',
@@ -130,6 +134,7 @@ class CompanySettingsController extends Controller
     public function destroyTenant(Company $company, Customer $customer)
     {
         $this->authorizeCompany($company);
+        abort_unless($customer->company_id === $company->id, 404);
         $customer->delete();
         return back()->with('success', 'Tenant removed.');
     }
@@ -161,6 +166,7 @@ class CompanySettingsController extends Controller
     public function updateDepartment(Request $request, Company $company, ManpowerDepartment $department)
     {
         $this->authorizeCompany($company);
+        abort_unless($department->company_id === $company->id, 404);
 
         $data = $request->validate([
             'department_name'    => 'required|string|max:255',
@@ -176,6 +182,7 @@ class CompanySettingsController extends Controller
     public function destroyDepartment(Company $company, ManpowerDepartment $department)
     {
         $this->authorizeCompany($company);
+        abort_unless($department->company_id === $company->id, 404);
         $department->delete();
         return back()->with('success', 'Department removed.');
     }
@@ -208,6 +215,7 @@ class CompanySettingsController extends Controller
     public function updateTitle(Request $request, Company $company, ManpowerTitle $title)
     {
         $this->authorizeCompany($company);
+        abort_unless($title->company_id === $company->id, 404);
 
         $data = $request->validate([
             'title_name'  => 'required|string|max:255',
@@ -222,6 +230,7 @@ class CompanySettingsController extends Controller
     public function destroyTitle(Company $company, ManpowerTitle $title)
     {
         $this->authorizeCompany($company);
+        abort_unless($title->company_id === $company->id, 404);
         $title->delete();
         return back()->with('success', 'Title removed.');
     }
@@ -251,6 +260,7 @@ class CompanySettingsController extends Controller
     public function updateExpenseCategory(Request $request, Company $company, ExpenseCategory $category)
     {
         $this->authorizeCompany($company);
+        abort_unless($category->company_id === $company->id, 404);
 
         $data = $request->validate([
             'category_name' => 'required|string|max:255',
@@ -265,6 +275,7 @@ class CompanySettingsController extends Controller
     public function destroyExpenseCategory(Company $company, ExpenseCategory $category)
     {
         $this->authorizeCompany($company);
+        abort_unless($category->company_id === $company->id, 404);
         $category->delete();
         return back()->with('success', 'Expense category removed.');
     }
@@ -275,6 +286,7 @@ class CompanySettingsController extends Controller
     public function storeExpenseItem(Request $request, Company $company, ExpenseCategory $category)
     {
         $this->authorizeCompany($company);
+        abort_unless($category->company_id === $company->id, 404);
 
         $data = $request->validate([
             'item_name'           => 'required|string|max:255',
@@ -296,6 +308,7 @@ class CompanySettingsController extends Controller
     public function updateExpenseItem(Request $request, Company $company, ExpenseItem $item)
     {
         $this->authorizeCompany($company);
+        abort_unless($item->company_id === $company->id, 404);
 
         $data = $request->validate([
             'item_name'           => 'required|string|max:255',
@@ -312,6 +325,7 @@ class CompanySettingsController extends Controller
     public function destroyExpenseItem(Company $company, ExpenseItem $item)
     {
         $this->authorizeCompany($company);
+        abort_unless($item->company_id === $company->id, 404);
         $item->delete();
         return back()->with('success', 'Expense item removed.');
     }
@@ -342,6 +356,7 @@ class CompanySettingsController extends Controller
     public function updateFixedAsset(Request $request, Company $company, FixedAssetSetting $asset)
     {
         $this->authorizeCompany($company);
+        abort_unless($asset->company_id === $company->id, 404);
 
         $data = $request->validate([
             'asset_name'        => 'required|string|max:255',
@@ -357,6 +372,7 @@ class CompanySettingsController extends Controller
     public function destroyFixedAsset(Company $company, FixedAssetSetting $asset)
     {
         $this->authorizeCompany($company);
+        abort_unless($asset->company_id === $company->id, 404);
         $asset->delete();
         return back()->with('success', 'Fixed asset removed.');
     }
@@ -393,6 +409,7 @@ class CompanySettingsController extends Controller
     public function updatePropertyCategory(Request $request, Company $company, PropertyCategory $category)
     {
         $this->authorizeCompany($company);
+        abort_unless($category->company_id === $company->id, 404);
 
         $data = $request->validate([
             'category_name' => 'required|string|max:255',
@@ -406,6 +423,7 @@ class CompanySettingsController extends Controller
     public function destroyPropertyCategory(Company $company, PropertyCategory $category)
     {
         $this->authorizeCompany($company);
+        abort_unless($category->company_id === $company->id, 404);
 
         if ($category->is_system) {
             return back()->with('error', 'System default categories cannot be deleted.');
@@ -421,6 +439,7 @@ class CompanySettingsController extends Controller
     public function storePropertyType(Request $request, Company $company, PropertyCategory $category)
     {
         $this->authorizeCompany($company);
+        abort_unless($category->company_id === $company->id, 404);
 
         $data = $request->validate([
             'type_name' => 'required|string|max:255',
@@ -447,6 +466,7 @@ class CompanySettingsController extends Controller
     public function updatePropertyType(Request $request, Company $company, PropertyType $type)
     {
         $this->authorizeCompany($company);
+        abort_unless($type->company_id === $company->id, 404);
 
         $data = $request->validate([
             'type_name' => 'required|string|max:255',
@@ -460,6 +480,7 @@ class CompanySettingsController extends Controller
     public function destroyPropertyType(Company $company, PropertyType $type)
     {
         $this->authorizeCompany($company);
+        abort_unless($type->company_id === $company->id, 404);
         $type->delete();
         return back()->with('success', 'Property type removed.');
     }
@@ -467,13 +488,6 @@ class CompanySettingsController extends Controller
     // ═══════════════════════════════════════════════════════════════════
     // HELPERS
     // ═══════════════════════════════════════════════════════════════════
-    private function authorizeCompany(Company $company): void
-    {
-        $user = auth()->user();
-        if (! $user->is_super_admin && $user->company_id !== $company->id) {
-            abort(403);
-        }
-    }
 
     public function costCenters(): array
     {

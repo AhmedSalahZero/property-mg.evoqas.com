@@ -14,12 +14,17 @@ class PropertyMarketValue extends Model
         'market_value',
         'value_date',
         'notes',
+        'base_amount',
+        'base_currency',
+        'fx_rate_used',
     ];
 
     protected $casts = [
         'market_value'     => 'decimal:2',
         'property_id'      => 'integer',
         'property_unit_id' => 'integer',
+        'base_amount'      => 'decimal:2',
+        'fx_rate_used'     => 'decimal:6',
     ];
 
     // ── Relationships ────────────────────────────────────────────────────────

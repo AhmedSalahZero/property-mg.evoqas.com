@@ -8,19 +8,16 @@ use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
 use Carbon\Carbon;
 use App\Models\Company;
+use App\Http\Controllers\Concerns\AuthorizesCompany;
 
 class StatisticaController extends Controller
 {
+    use AuthorizesCompany;
+
     // ─────────────────────────────────────────────────────────────────────────
     // HELPERS
     // ─────────────────────────────────────────────────────────────────────────
 
-    private function authorizeCompany(Company $company): void
-    {
-        $user = Auth::user();
-        if ($user->is_super_admin) return;
-        if ((int) $user->company_id !== (int) $company->id) abort(403);
-    }
 
     private function authorizeWrite(Company $company): void
     {

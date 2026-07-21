@@ -99,6 +99,17 @@
 
         <!-- ── Rent Schedule Tab ─────────────────────────────────── -->
         <div v-if="activeTab === 'Rent Schedule'" class="overflow-x-auto">
+          <!-- Fix for audit finding M-5 — makes the already-confirmed
+               management-fee business rule visible here too, not just on
+               the Create form. "Monthly Rent" below is the full rent basis;
+               "Revenue Amount" is only this company's commission on it —
+               the two intentionally differ for a management-fee contract. -->
+          <div v-if="contract.revenue_type === 'management_fee'" class="mx-4 mt-4 mb-2 px-3 py-2 rounded-lg text-xs"
+            style="background:var(--fv-blue-dim); border:1px solid var(--fv-border); color:var(--fv-text-muted);">
+            ℹ️ Management Fee contract — <strong class="fv-text-primary">Monthly Rent</strong> is the full rent basis,
+            but <strong class="fv-text-primary">Revenue Amount</strong> is only this company's {{ contract.management_fee_rate }}%
+            commission on it. The full rent is settled directly between tenant and owner and never appears in this app's totals.
+          </div>
           <table class="w-full text-sm">
             <thead>
               <tr style="border-bottom:1px solid var(--fv-border)">
@@ -143,6 +154,11 @@
 
         <!-- ── Collections Tab ──────────────────────────────────── -->
         <div v-if="activeTab === 'Collections'" class="overflow-x-auto">
+          <div v-if="contract.revenue_type === 'management_fee'" class="mx-4 mt-4 mb-2 px-3 py-2 rounded-lg text-xs"
+            style="background:var(--fv-blue-dim); border:1px solid var(--fv-border); color:var(--fv-text-muted);">
+            ℹ️ Management Fee contract — amounts below are only this company's commission, collected directly.
+            The tenant's full rent payment to the property owner is settled outside this app.
+          </div>
           <table class="w-full text-sm">
             <thead>
               <tr style="border-bottom:1px solid var(--fv-border)">
@@ -173,25 +189,39 @@
                   <span :class="collectionBadge(col.status)" style="text-transform:capitalize">{{ col.status }}</span>
                 </td>
                 <td class="px-4 py-2.5 text-center">
-                  <!-- COLLECTED: show date + edit pencil -->
-                  <div v-if="col.status === 'collected'" class="flex items-center justify-center gap-2">
-                    <span class="fv-text-muted text-xs">{{ formatDate(col.collected_date) }}</span>
-                    <button @click="openMarkCollected(col, true)"
-                      class="fv-text-muted hover:text-white transition-colors"
-                      title="Edit collection">
+                  <div class="flex items-center justify-center gap-2">
+                    <!-- COLLECTED: show date + edit pencil -->
+                    <div v-if="col.status === 'collected'" class="flex items-center justify-center gap-2">
+                      <span class="fv-text-muted text-xs">{{ formatDate(col.collected_date) }}</span>
+                      <button @click="openMarkCollected(col, true)"
+                        class="fv-text-muted hover:text-white transition-colors"
+                        title="Edit collection">
+                        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H8v-2.414a2 2 0 01.586-1.414z"/>
+                        </svg>
+                      </button>
+                    </div>
+                    <!-- PENDING or OVERDUE: show Mark Collected button -->
+                    <button v-else
+                      @click="openMarkCollected(col, false)"
+                      class="fv-action-btn fv-action-btn-settings text-xs px-2 h-auto py-1 rounded"
+                      style="font-size:0.7rem">
+                      Mark Collected
+                    </button>
+                    <!-- Delete this collection row — any status, including
+                         collected. This is intentional: deleting a collected
+                         row is exactly the escape valve meant to unblock
+                         editing/deleting a contract that has real collection
+                         history (see the lock on the Edit page). -->
+                    <button @click="deleteCollection(col)"
+                      class="fv-action-btn fv-action-btn-danger"
+                      title="Delete this collection">
                       <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                          d="M15.232 5.232l3.536 3.536M9 13l6.586-6.586a2 2 0 112.828 2.828L11.828 15.828a2 2 0 01-1.414.586H8v-2.414a2 2 0 01.586-1.414z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
                       </svg>
                     </button>
                   </div>
-                  <!-- PENDING or OVERDUE: show Mark Collected button -->
-                  <button v-else
-                    @click="openMarkCollected(col, false)"
-                    class="fv-action-btn fv-action-btn-settings text-xs px-2 h-auto py-1 rounded"
-                    style="font-size:0.7rem">
-                    Mark Collected
-                  </button>
                 </td>
               </tr>
             </tbody>
@@ -225,7 +255,7 @@
               <dd class="fv-text-primary font-bold" style="color:var(--fv-gold)">{{ formatMoney(contract.min_monthly_rent) }} {{ contract.contract_currency }}</dd></div>
             <div v-if="contract.variable_revenue_pct"><dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Variable Revenue %</dt>
               <dd class="fv-text-primary">{{ contract.variable_revenue_pct }}% <span class="fv-tag ml-1">Info only</span></dd></div>
-            <div v-if="contract.revenue_type === 'management_fee'"><dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Management Fee Rate</dt>
+            <div v-if="contract.revenue_type === 'management_fee'"><dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Management Fee Revenue Rate</dt>
               <dd class="fv-text-primary">{{ contract.management_fee_rate }}%</dd></div>
             <div><dt class="fv-text-muted text-xs uppercase tracking-wider mb-0.5">Collection Interval</dt>
               <dd class="fv-text-primary">{{ intervalLabel(contract.collection_interval_months) }}</dd></div>
@@ -410,6 +440,26 @@ function submitCollected() {
     route('company.properties.contracts.collections.collected', [props.company.id, props.property.id, props.contract.id, col.id]),
     collectedForm.value,
     { onSuccess: () => { collectedModal.value.open = false } }
+  )
+}
+
+// ── Delete Collection ────────────────────────────────────────────────────
+// Deliberate, explicit deletion — allowed at any status, including
+// 'collected'. Deleting a collected row is exactly the escape valve meant to
+// unblock editing/deleting this contract once it has real collection
+// history (see the lock on the Edit page) — so unlike installment dues,
+// there's no "paid rows are protected" rule here at all. A stronger
+// confirmation is shown for collected rows since removing one changes
+// collected totals shown elsewhere.
+function deleteCollection(col) {
+  const message = col.status === 'collected'
+    ? 'This collection is marked as received — deleting it will change your collected totals. Continue?'
+    : 'Delete this collection?'
+  if (!confirm(message)) return
+
+  router.delete(
+    route('company.properties.contracts.collections.destroy', [props.company.id, props.property.id, props.contract.id, col.id]),
+    { preserveScroll: true }
   )
 }
 </script>

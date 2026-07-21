@@ -1,11 +1,13 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import axios from 'axios'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 
 const props = defineProps({
     company:     Object,
     fromDefault: String,
     toDefault:   String,
+    baseCurrency: { type: String, default: 'EGP' },
 })
 
 const companyId = computed(() => props.company?.id)
@@ -14,11 +16,21 @@ const companyId = computed(() => props.company?.id)
 const fromPicker = ref(props.fromDefault)
 const toPicker   = ref(props.toDefault)
 
+// ── Currency view ─────────────────────────────────────────────────────────
+// '' (empty) = main functional currency (every currency converted at the
+// latest rate on file and summed together). Any other value = show ONLY
+// that currency's raw, unconverted cash in/out.
+const viewCurrency        = ref('')
+const availableCurrencies = ref([])
+const isFunctionalView    = ref(true)
+const unconvertedCurrencies = ref([])
+
 // ── Server data ───────────────────────────────────────────────────────────
 const months            = ref([])
 const rentByTypeUnit    = ref({})
 const installByTypeUnit = ref({})
 const expenseByItem     = ref({})
+const corporateExpenseByItem = ref({})
 const managementFeesByMonth = ref({})
 const loading           = ref(false)
 
@@ -33,6 +45,18 @@ const otherCollections = ref([])
 const salaries         = ref({})
 const newHirings       = ref({})
 const otherPayments    = ref([])
+
+// ── Fix for audit finding H-4 — persistence state for the four manual
+// sections above. They previously lived only in this in-memory state with
+// no save endpoint anywhere, so every entry was lost on refresh. ─────────
+const manualRowsSaving  = ref(false)
+const manualRowsDirty   = ref(false)
+const manualRowsSavedAt = ref(null)
+// True while THIS code (not the user) is writing to salaries/newHirings/
+// otherCollections/otherPayments — during the initial load, and during
+// fetchData()'s own "fill in any month not already present" step — so the
+// dirty-tracking watch below only fires on genuine user edits.
+const suppressManualDirty = ref(false)
 
 // ── Hiring modal ──────────────────────────────────────────────────────────
 const hiringModalOpen  = ref(false)
@@ -116,6 +140,14 @@ const expenseTotals = computed(() => {
     return out
 })
 
+const corporateExpenseTotals = computed(() => {
+    const out = {}
+    months.value.forEach(m => {
+        out[m] = Object.values(corporateExpenseByItem.value).reduce((s, mMap) => s + n(mMap[m]), 0)
+    })
+    return out
+})
+
 const salaryTotals = computed(() => {
     const out = {}
     months.value.forEach(m => { out[m] = n(salaries.value[m]) })
@@ -149,7 +181,7 @@ const managementFeeTotals = computed(() => {
 const totalCashOut = computed(() => {
     const out = {}
     months.value.forEach(m => {
-        out[m] = installTotals.value[m] + expenseTotals.value[m] +
+        out[m] = installTotals.value[m] + expenseTotals.value[m] + corporateExpenseTotals.value[m] +
                  managementFeeTotals.value[m] + salaryTotals.value[m]  + hiringTotals.value[m]  +
                  otherPayTotals.value[m]
     })
@@ -186,8 +218,9 @@ async function fetchData() {
     if (fromPicker.value > toPicker.value) return
     loading.value = true
     try {
+        const currencyParam = viewCurrency.value ? `&currency=${viewCurrency.value}` : ''
         const url = route('company.properties.cash-forecast.data', { company: companyId.value })
-            + `?from=${fromPicker.value}&to=${toPicker.value}`
+            + `?from=${fromPicker.value}&to=${toPicker.value}${currencyParam}`
         const res  = await fetch(url, { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
         if (!res.ok) {
             console.error('CashForecast HTTP error', res.status, await res.text())
@@ -199,7 +232,11 @@ async function fetchData() {
         rentByTypeUnit.value    = data.rentByTypeUnit    || {}
         installByTypeUnit.value = data.installByTypeUnit || {}
         expenseByItem.value     = data.expenseByItem     || {}
+        corporateExpenseByItem.value = data.corporateExpenseByItem || {}
         managementFeesByMonth.value = data.managementFeesByMonth || {}
+        availableCurrencies.value   = data.availableCurrencies   || []
+        isFunctionalView.value      = data.isFunctionalView ?? true
+        unconvertedCurrencies.value = data.unconvertedCurrencies || []
 
         months.value.forEach(m => {
             if (!(m in salaries.value))   salaries.value[m]   = ''
@@ -211,6 +248,19 @@ async function fetchData() {
         otherPayments.value.forEach(r => {
             months.value.forEach(m => { if (!(m in r.amounts)) r.amounts[m] = '' })
         })
+        // Fix for audit finding H-4 — the three blocks just above only ever
+        // WRITE a value for a month that's genuinely missing (e.g. the
+        // period picker was widened) — real user-entered amounts are never
+        // touched. Still, mutating the refs at all would otherwise trip the
+        // dirty-tracking watch below and prompt a save/leave-warning for
+        // data the user never actually edited. suppressManualDirty (already
+        // true from the loadManualRows() call that always precedes the
+        // first fetchData() — see onMounted below) covers the initial load;
+        // this repeats the same guard for every subsequent fetchData() call
+        // triggered by changing the period/currency pickers.
+        suppressManualDirty.value = true
+        await nextTick()
+        suppressManualDirty.value = false
 
         const rt = {}
         Object.keys(rentByTypeUnit.value).forEach(t => { rt[t] = true })
@@ -229,8 +279,84 @@ async function fetchData() {
     }
 }
 
-watch([fromPicker, toPicker], fetchData)
-onMounted(fetchData)
+watch([fromPicker, toPicker, viewCurrency], fetchData)
+onMounted(async () => {
+    // Fix for audit finding H-4 — load saved manual rows BEFORE the first
+    // fetchData() call. fetchData()'s own month-filling logic only fills in
+    // months that AREN'T already present on salaries/newHirings (and
+    // otherCollections/otherPayments' own amounts objects), so loading the
+    // saved data first means real values are preserved and only genuinely
+    // missing months get blank defaults, in either order of months.
+    await loadManualRows()
+    await fetchData()
+})
+
+// ─────────────────────────────────────────────────────────────────────────
+// MANUAL ROWS PERSISTENCE — fix for audit finding H-4
+// ─────────────────────────────────────────────────────────────────────────
+async function loadManualRows() {
+    if (!companyId.value) return
+    suppressManualDirty.value = true
+    try {
+        const url = route('company.properties.cash-forecast.manual-rows', { company: companyId.value })
+        const res = await fetch(url, { credentials: 'include', headers: { 'X-Requested-With': 'XMLHttpRequest' } })
+        if (!res.ok) {
+            console.error('CashForecast manual-rows load error', res.status, await res.text())
+            return
+        }
+        const data = await res.json()
+        salaries.value         = data.salaries          || {}
+        newHirings.value       = data.new_hirings        || {}
+        otherCollections.value = data.other_collections  || []
+        otherPayments.value    = data.other_payments     || []
+        manualRowsSavedAt.value = data.updated_at || null
+    } catch (e) {
+        console.error('CashForecast manual-rows load error', e)
+    } finally {
+        await nextTick()
+        suppressManualDirty.value = false
+        manualRowsDirty.value = false
+    }
+}
+
+async function saveManualRows() {
+    if (!companyId.value) return
+    manualRowsSaving.value = true
+    try {
+        const url = route('company.properties.cash-forecast.manual-rows.save', { company: companyId.value })
+        const res = await axios.post(url, {
+            salaries:          salaries.value,
+            new_hirings:       newHirings.value,
+            other_collections: otherCollections.value,
+            other_payments:    otherPayments.value,
+        })
+        manualRowsSavedAt.value = res.data.saved_at
+        manualRowsDirty.value   = false
+    } catch (e) {
+        console.error('CashForecast manual-rows save error', e?.response?.data || e)
+        alert('Could not save your Salaries/New Hirings/Other Collections/Other Payments entries — please try again.')
+    } finally {
+        manualRowsSaving.value = false
+    }
+}
+
+// Mark the four manual sections dirty the moment the user changes anything
+// in them, so the "unsaved changes" indicator (and the browser's own
+// leave-page warning below) only fires on real edits, not on writes made by
+// loadManualRows() or fetchData()'s own month-filling step above (guarded
+// by suppressManualDirty).
+watch([salaries, newHirings, otherCollections, otherPayments], () => {
+    if (!suppressManualDirty.value) manualRowsDirty.value = true
+}, { deep: true })
+
+// Warn before leaving the page (refresh, close tab, navigate away) with
+// unsaved manual-row edits — the exact scenario audit finding H-4 flagged.
+window.addEventListener('beforeunload', (e) => {
+    if (manualRowsDirty.value) {
+        e.preventDefault()
+        e.returnValue = ''
+    }
+})
 
 // ─────────────────────────────────────────────────────────────────────────
 // REPEATERS
@@ -369,6 +495,23 @@ watch([totalCashIn, totalCashOut, accumulated], () => nextTick(renderCharts), { 
                 </div>
                 <div class="flex items-center gap-3 flex-wrap">
                     <div class="flex items-center gap-2">
+                        <span class="text-xs font-semibold uppercase" style="color:var(--fv-muted);">Currency</span>
+                        <select v-model="viewCurrency" class="fv-select rounded-lg px-3 py-1.5 text-sm">
+                            <option value="">{{ baseCurrency }} (Functional — all currencies converted)</option>
+                            <option v-for="c in availableCurrencies.filter(c => c !== baseCurrency)" :key="c" :value="c">
+                                {{ c }} only (raw, unconverted)
+                            </option>
+                        </select>
+                        <!-- Fix for audit finding M-4 — see the matching note on the
+                             main Dashboard's currency picker: the "Functional" total
+                             here always uses today's latest exchange rate, while each
+                             underlying transaction keeps the rate that applied on its
+                             own date. Both are correct, just answering a different
+                             question — this makes that visible in the UI itself. -->
+                        <span class="text-xs cursor-help" style="color:var(--fv-muted);"
+                            title="Functional totals always use the latest exchange rate on file (today's value). Individual transactions elsewhere in the app keep the rate that applied on their own date, so the same amount can show slightly differently in the two places — both are correct, just answering a different question.">ⓘ</span>
+                    </div>
+                    <div class="flex items-center gap-2">
                         <span class="text-xs font-semibold uppercase" style="color:var(--fv-muted);">From</span>
                         <input type="month" v-model="fromPicker" class="fv-input rounded-lg px-3 py-1.5 text-sm" />
                     </div>
@@ -376,8 +519,33 @@ watch([totalCashIn, totalCashOut, accumulated], () => nextTick(renderCharts), { 
                         <span class="text-xs font-semibold uppercase" style="color:var(--fv-muted);">To</span>
                         <input type="month" v-model="toPicker" class="fv-input rounded-lg px-3 py-1.5 text-sm" />
                     </div>
+                    <!-- Fix for audit finding H-4 — Save button + status for the
+                         Salaries/New Hirings/Other Collections/Other Payments
+                         sections, which previously had no way to persist at all. -->
+                    <button type="button" @click="saveManualRows" :disabled="manualRowsSaving || !manualRowsDirty"
+                        class="fv-btn-gold rounded-lg px-4 py-1.5 text-sm font-semibold disabled:opacity-40 disabled:cursor-not-allowed">
+                        {{ manualRowsSaving ? 'Saving…' : 'Save Forecast Inputs' }}
+                    </button>
+                    <span v-if="manualRowsDirty && !manualRowsSaving" class="text-xs" style="color:#BA7517;">● Unsaved changes</span>
+                    <span v-else-if="manualRowsSavedAt && !manualRowsSaving" class="text-xs" style="color:var(--fv-muted);">
+                        Saved {{ new Date(manualRowsSavedAt).toLocaleString() }}
+                    </span>
                     <span v-if="loading" class="text-xs animate-pulse" style="color:#1490A8;">Loading…</span>
                 </div>
+            </div>
+
+            <div v-if="!isFunctionalView" class="px-4 py-2.5 rounded-lg text-xs"
+                style="background:rgba(186,117,23,0.1); border:1px solid rgba(186,117,23,0.3); color:#BA7517;">
+                Showing <strong>{{ viewCurrency }} only</strong> — raw, unconverted cash flows in this
+                currency alone. A contract billed in {{ viewCurrency }} but actually collected in a
+                different currency correctly shows nothing here, since collection currency (what's
+                really received) is what counts, not the rent's billing currency.
+            </div>
+            <div v-if="isFunctionalView && unconvertedCurrencies.length" class="px-4 py-2.5 rounded-lg text-xs"
+                style="background:rgba(239,68,68,0.08); border:1px solid rgba(239,68,68,0.25); color:#f87171;">
+                💱 {{ unconvertedCurrencies.join(', ') }} {{ unconvertedCurrencies.length > 1 ? 'have' : 'has' }}
+                no exchange rate on file — those amounts are excluded from the totals below until a rate
+                is added under Company Settings → Exchange Rates.
             </div>
 
             <!-- ── CHARTS ───────────────────────────────────────────── -->
@@ -657,6 +825,35 @@ watch([totalCashIn, totalCashOut, accumulated], () => nextTick(renderCharts), { 
                                        padding:8px 16px 8px 28px;font-size:11px;font-style:italic;
                                        color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);">
                                 Expense Payments — no scheduled payments in period
+                            </td>
+                            <td v-for="m in months" :key="m"
+                                style="padding:8px 12px;text-align:center;font-size:11px;
+                                       color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);
+                                       border-left:1px solid var(--fv-border,#1B3558);">—</td>
+                        </tr>
+
+                        <!-- Corporate Expenses — one row per expense item, same paid+forecast blend as Expense Payments above -->
+                        <tr v-for="(mMap, itemName) in corporateExpenseByItem" :key="'cep-'+itemName"
+                            style="background:rgba(11,26,48,0.6);">
+                            <td style="position:sticky;left:0;z-index:10;background:rgba(11,26,48,0.6);
+                                       padding:7px 16px 7px 28px;font-size:11px;
+                                       color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);">
+                                {{ itemName }} <span style="opacity:0.6;">(Corporate)</span>
+                            </td>
+                            <td v-for="m in months" :key="m"
+                                style="padding:7px 12px;text-align:center;font-size:11px;
+                                       color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);
+                                       border-left:1px solid var(--fv-border,#1B3558);">
+                                {{ fmt(mMap[m]) }}
+                            </td>
+                        </tr>
+
+                        <!-- No corporate expense data -->
+                        <tr v-if="Object.keys(corporateExpenseByItem).length === 0" style="background:rgba(11,26,48,0.5);">
+                            <td style="position:sticky;left:0;z-index:10;background:rgba(11,26,48,0.5);
+                                       padding:8px 16px 8px 28px;font-size:11px;font-style:italic;
+                                       color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);">
+                                Corporate Expenses — no scheduled payments in period
                             </td>
                             <td v-for="m in months" :key="m"
                                 style="padding:8px 12px;text-align:center;font-size:11px;

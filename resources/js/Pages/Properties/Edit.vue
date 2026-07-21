@@ -169,72 +169,107 @@
               </div>
             </div>
 
-            <!-- Acquisition Cost + Currency -->
-            <div class="flex gap-2">
-              <div class="flex-1">
-                <label class="fv-label">Acquisition Cost</label>
-                <input v-model="form.acquisition_cost" type="number" min="0" step="0.01"
-                  class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+            <!-- Acquisition Cost + Currency, Acquisition Date, Book Value,
+                 depreciation fields, and Market Value — none of these apply
+                 to Usufruct or Managed For Others (not company assets). -->
+            <template v-if="!hideAssetFields(form.ownership)">
+
+              <!-- Acquisition Cost + Currency -->
+              <div class="flex gap-2">
+                <div class="flex-1">
+                  <label class="fv-label">Acquisition Cost
+                    <span v-if="assetFieldsRequired(form.ownership)" class="text-red-400">*</span>
+                  </label>
+                  <input v-model="form.acquisition_cost" type="number" min="0" step="0.01"
+                    @input="recalcBookValue(form)"
+                    class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                  <p v-if="errors.acquisition_cost" class="err-msg">{{ errors.acquisition_cost }}</p>
+                </div>
+                <div style="width:6rem;">
+                  <label class="fv-label">Currency</label>
+                  <select v-model="form.currency" class="fv-select w-full rounded-lg px-3 py-2 text-sm">
+                    <option v-for="c in currencyOptions" :key="c" :value="c">{{ c }}</option>
+                  </select>
+                </div>
               </div>
-              <div style="width:6rem;">
-                <label class="fv-label">Currency</label>
-                <select v-model="form.currency" class="fv-select w-full rounded-lg px-3 py-2 text-sm">
-                  <option v-for="c in currencyOptions" :key="c" :value="c">{{ c }}</option>
-                </select>
-              </div>
-            </div>
 
-            <!-- Acquisition Date — MM/YYYY PICKER -->
-            <div>
-              <label class="fv-label">Acquisition Date</label>
-              <input 
-                type="month" 
-                v-model="form.acquisition_date" 
-                class="fv-input w-full rounded-lg px-3 py-2 text-sm"
-              />
-            </div>
-
-            <!-- Book Value -->
-            <div>
-              <label class="fv-label">Book Value</label>
-              <input v-model="form.book_value" type="number" min="0" step="0.01"
-                class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
-            </div>
-
-            <!-- Depreciation fields — NOT for land -->
-            <template v-if="form.nature !== 'land'">
+              <!-- Acquisition Date — MM/YYYY PICKER -->
               <div>
+                <label class="fv-label">Acquisition Date
+                  <span v-if="assetFieldsRequired(form.ownership)" class="text-red-400">*</span>
+                </label>
+                <input 
+                  type="month" 
+                  v-model="form.acquisition_date" 
+                  class="fv-input w-full rounded-lg px-3 py-2 text-sm"
+                />
+                <p v-if="errors.acquisition_date" class="err-msg">{{ errors.acquisition_date }}</p>
+              </div>
+
+              <!-- Accumulated Depreciation — NOT for land, now BEFORE Book Value -->
+              <div v-if="form.nature !== 'land'">
                 <label class="fv-label">Accumulated Depreciation</label>
                 <input v-model="form.accumulated_depreciation" type="number" min="0" step="0.01"
+                  @input="recalcBookValue(form)"
                   class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
               </div>
+
+              <!-- Book Value — auto-calculated: Acquisition Cost − Accumulated Depreciation -->
               <div>
-                <label class="fv-label">Monthly Depreciation</label>
-                <input v-model="form.monthly_depreciation" type="number" min="0" step="0.01"
-                  class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                <label class="fv-label">Book Value <span class="fv-text-muted text-xs">(auto)</span></label>
+                <input :value="form.book_value" type="number" readonly
+                  class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00"
+                  style="opacity:0.6; cursor:not-allowed;" />
               </div>
-              <div>
-                <label class="fv-label">Depreciation Duration (months)</label>
-                <input v-model="form.depreciation_duration_months" type="number" min="0"
-                  class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="e.g. 240" />
+
+              <!-- Depreciation Duration + Monthly Depreciation — NOT for land -->
+              <template v-if="form.nature !== 'land'">
+                <div>
+                  <label class="fv-label">Depreciation Duration (months)
+                    <span v-if="assetFieldsRequired(form.ownership)" class="text-red-400">*</span>
+                  </label>
+                  <input v-model="form.depreciation_duration_months" type="number"
+                    :min="assetFieldsRequired(form.ownership) ? 1 : 0"
+                    @input="recalcMonthlyDepreciation(form)"
+                    class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="e.g. 240" />
+                  <p v-if="errors.depreciation_duration_months" class="err-msg">{{ errors.depreciation_duration_months }}</p>
+                </div>
+                <div>
+                  <label class="fv-label">Monthly Depreciation <span class="fv-text-muted text-xs">(auto)</span></label>
+                  <input :value="form.monthly_depreciation" type="number" readonly
+                    class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00"
+                    style="opacity:0.6; cursor:not-allowed;" />
+                </div>
+              </template>
+
+              <!-- No depreciation notice for land -->
+              <div v-else class="lg:col-span-3">
+                <div class="flex items-center gap-2 px-4 py-3 rounded-lg text-sm"
+                  style="background:rgba(20,184,166,0.07); border:1px solid rgba(20,184,166,0.2); color:#2dd4bf;">
+                  <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  Land does not depreciate — depreciation fields are not applicable.
+                </div>
               </div>
+
             </template>
 
-            <!-- No depreciation notice for land -->
+            <!-- Not a company asset — Usufruct / Managed For Others -->
             <div v-else class="lg:col-span-3">
               <div class="flex items-center gap-2 px-4 py-3 rounded-lg text-sm"
                 style="background:rgba(20,184,166,0.07); border:1px solid rgba(20,184,166,0.2); color:#2dd4bf;">
                 <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
-                Land does not depreciate — depreciation fields are not applicable.
+                Usufruct and Managed For Others units are not company assets — acquisition, depreciation, and valuation fields don't apply.
               </div>
             </div>
 
           </div>
 
           <!-- ── Market Value Repeater ────────────────────────────────── -->
-          <div class="mt-6 pt-5" style="border-top:1px solid var(--fv-border);">
+          <div v-if="!hideAssetFields(form.ownership)" class="mt-6 pt-5" style="border-top:1px solid var(--fv-border);">
             <div class="flex items-center justify-between mb-3">
               <div>
                 <p class="text-sm font-semibold fv-text-primary">Current Market Value</p>
@@ -432,69 +467,103 @@
                     </div>
                   </div>
 
-                  <!-- Acquisition Cost + Currency -->
-                  <div class="flex gap-2">
-                    <div class="flex-1">
-                      <label class="fv-label">Acquisition Cost</label>
-                      <input v-model="unit.acquisition_cost" type="number" min="0" step="0.01"
-                        class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                  <!-- Acquisition Cost + Currency, Acquisition Date, Book Value,
+                       depreciation fields, and Market Value — none of these apply
+                       to Usufruct or Managed For Others (not company assets),
+                       using this unit's effective ownership (its own override,
+                       or inherited from the parent property). -->
+                  <template v-if="!hideAssetFields(effectiveOwnership(unit))">
+
+                    <!-- Acquisition Cost + Currency -->
+                    <div class="flex gap-2">
+                      <div class="flex-1">
+                        <label class="fv-label">Acquisition Cost
+                          <span v-if="assetFieldsRequired(effectiveOwnership(unit))" class="text-red-400">*</span>
+                        </label>
+                        <input v-model="unit.acquisition_cost" type="number" min="0" step="0.01"
+                          @input="recalcBookValue(unit)"
+                          class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                        <p v-if="errors[`units.${idx}.acquisition_cost`]" class="err-msg">{{ errors[`units.${idx}.acquisition_cost`] }}</p>
+                      </div>
+                      <div style="width:6rem;">
+                        <label class="fv-label">Currency</label>
+                        <select v-model="unit.currency" class="fv-select w-full rounded-lg px-3 py-2 text-sm">
+                          <option v-for="c in currencyOptions" :key="c" :value="c">{{ c }}</option>
+                        </select>
+                      </div>
                     </div>
-                    <div style="width:6rem;">
-                      <label class="fv-label">Currency</label>
-                      <select v-model="unit.currency" class="fv-select w-full rounded-lg px-3 py-2 text-sm">
-                        <option v-for="c in currencyOptions" :key="c" :value="c">{{ c }}</option>
-                      </select>
-                    </div>
-                  </div>
 
-                  <!-- Acquisition Date — MM/YYYY PICKER -->
-                  <div>
-                    <label class="fv-label">Acquisition Date</label>
-                    <input 
-                      type="month" 
-                      v-model="unit.acquisition_date" 
-                      class="fv-input w-full rounded-lg px-3 py-2 text-sm"
-                    />
-                  </div>
-
-                  <!-- Book Value -->
-                  <div>
-                    <label class="fv-label">Book Value</label>
-                    <input v-model="unit.book_value" type="number" min="0" step="0.01"
-                      class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
-                  </div>
-
-                  <!-- Depreciation (built_unit only) -->
-                  <template v-if="unit.slot_type !== 'land_slot'">
+                    <!-- Acquisition Date — MM/YYYY PICKER -->
                     <div>
+                      <label class="fv-label">Acquisition Date
+                        <span v-if="assetFieldsRequired(effectiveOwnership(unit))" class="text-red-400">*</span>
+                      </label>
+                      <input 
+                        type="month" 
+                        v-model="unit.acquisition_date" 
+                        class="fv-input w-full rounded-lg px-3 py-2 text-sm"
+                      />
+                      <p v-if="errors[`units.${idx}.acquisition_date`]" class="err-msg">{{ errors[`units.${idx}.acquisition_date`] }}</p>
+                    </div>
+
+                    <!-- Accumulated Depreciation — built_unit only, now BEFORE Book Value -->
+                    <div v-if="unit.slot_type !== 'land_slot'">
                       <label class="fv-label">Accumulated Depreciation</label>
                       <input v-model="unit.accumulated_depreciation" type="number" min="0" step="0.01"
+                        @input="recalcBookValue(unit)"
                         class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
                     </div>
+
+                    <!-- Book Value — auto-calculated: Acquisition Cost − Accumulated Depreciation -->
                     <div>
-                      <label class="fv-label">Monthly Depreciation</label>
-                      <input v-model="unit.monthly_depreciation" type="number" min="0" step="0.01"
-                        class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00" />
+                      <label class="fv-label">Book Value <span class="fv-text-muted text-xs">(auto)</span></label>
+                      <input :value="unit.book_value" type="number" readonly
+                        class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00"
+                        style="opacity:0.6; cursor:not-allowed;" />
                     </div>
-                    <div>
-                      <label class="fv-label">Depreciation Duration (months)</label>
-                      <input v-model="unit.depreciation_duration_months" type="number" min="0"
-                        class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="e.g. 240" />
+
+                    <!-- Depreciation Duration + Monthly Depreciation — built_unit only -->
+                    <template v-if="unit.slot_type !== 'land_slot'">
+                      <div>
+                        <label class="fv-label">Depreciation Duration (months)
+                          <span v-if="assetFieldsRequired(effectiveOwnership(unit))" class="text-red-400">*</span>
+                        </label>
+                        <input v-model="unit.depreciation_duration_months" type="number"
+                          :min="assetFieldsRequired(effectiveOwnership(unit)) ? 1 : 0"
+                          @input="recalcMonthlyDepreciation(unit)"
+                          class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="e.g. 240" />
+                        <p v-if="errors[`units.${idx}.depreciation_duration_months`]" class="err-msg">{{ errors[`units.${idx}.depreciation_duration_months`] }}</p>
+                      </div>
+                      <div>
+                        <label class="fv-label">Monthly Depreciation <span class="fv-text-muted text-xs">(auto)</span></label>
+                        <input :value="unit.monthly_depreciation" type="number" readonly
+                          class="fv-input w-full rounded-lg px-3 py-2 text-sm" placeholder="0.00"
+                          style="opacity:0.6; cursor:not-allowed;" />
+                      </div>
+                    </template>
+
+                    <!-- No depreciation label for land slot -->
+                    <div v-else class="sm:col-span-2 lg:col-span-3">
+                      <div class="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs"
+                        style="background:rgba(20,184,166,0.07); border:1px solid rgba(20,184,166,0.2); color:#2dd4bf;">
+                        🌿 Land slot — depreciation not applicable.
+                      </div>
                     </div>
+
                   </template>
 
-                  <!-- No depreciation label for land slot -->
+                  <!-- Not a company asset — Usufruct / Managed For Others -->
                   <div v-else class="sm:col-span-2 lg:col-span-3">
                     <div class="flex items-center gap-2 px-3 py-2.5 rounded-lg text-xs"
                       style="background:rgba(20,184,166,0.07); border:1px solid rgba(20,184,166,0.2); color:#2dd4bf;">
-                      🌿 Land slot — depreciation not applicable.
+                      Usufruct and Managed For Others units are not company assets — acquisition, depreciation, and valuation fields don't apply.
                     </div>
                   </div>
 
                 </div>
 
                 <!-- Unit Market Value Repeater -->
-                <div class="mt-5 pt-4" style="border-top:1px solid var(--fv-border);">
+                <div v-if="!hideAssetFields(effectiveOwnership(unit))" class="mt-5 pt-4" style="border-top:1px solid var(--fv-border);">
                   <div class="flex items-center justify-between mb-2">
                     <p class="text-xs font-semibold fv-text-primary">Market Value History</p>
                     <button type="button" @click="addMarketValue(unit.market_values)"
@@ -776,6 +845,44 @@ const descriptionTags = ref(
 
 // ── Helpers ────────────────────────────────────────────────────────────
 const natureLabel = (n) => ({ unit:'Unit', building:'Building', land:'Land', complex:'Complex' }[n] || n)
+
+// Usufruct and "Managed For Others" units are not company assets — the
+// whole acquisition/depreciation/valuation block doesn't apply to them.
+const hideAssetFields = (ownership) => ownership === 'usufruct' || ownership === 'managed'
+
+// Only Fully Owned / Owned with Installments require Acquisition Date,
+// Acquisition Cost, and a minimum 1-month Depreciation Duration.
+const assetFieldsRequired = (ownership) => ownership === 'fully_owned' || ownership === 'installments'
+
+// A child unit's own ownership override, or — if left blank ("inherit
+// from parent") — the parent property's ownership. Building/Land/Complex
+// parents carry no financials of their own, so a unit that inherits its
+// ownership also inherits whether the asset fields apply to it.
+const effectiveOwnership = (unit) => unit.ownership || form.value.ownership
+
+// Book Value = Acquisition Cost − Accumulated Depreciation, auto-computed
+// whenever either input changes. Also refreshes Monthly Depreciation,
+// since that's derived from Book Value.
+const recalcBookValue = (target) => {
+  const cost    = parseFloat(target.acquisition_cost) || 0
+  const accumDep = parseFloat(target.accumulated_depreciation) || 0
+  target.book_value = (cost - accumDep).toFixed(2)
+  recalcMonthlyDepreciation(target)
+}
+
+// Monthly Depreciation = Book Value ÷ Depreciation Duration (months),
+// auto-computed. 0 (not an error) when duration is blank or 0.
+const recalcMonthlyDepreciation = (target) => {
+  const bookValue = parseFloat(target.book_value) || 0
+  const duration  = parseFloat(target.depreciation_duration_months) || 0
+  target.monthly_depreciation = duration > 0 ? (bookValue / duration).toFixed(2) : '0.00'
+}
+
+// These two fields are now derived, not stored user input — recompute
+// them once on load so what's displayed always matches the current
+// formula, even for a property saved before this change.
+recalcBookValue(form.value)
+form.value.units.forEach(u => recalcBookValue(u))
 
 const typesForCategory = (catId) => {
   if (!catId) return []
