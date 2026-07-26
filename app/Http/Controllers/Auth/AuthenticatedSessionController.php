@@ -8,11 +8,13 @@ use App\Models\Company;
 use App\Services\CompanySubscriptionService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
+use Throwable;
 
 class AuthenticatedSessionController extends Controller
 {
@@ -31,33 +33,54 @@ class AuthenticatedSessionController extends Controller
      * Handle an incoming authentication request.
      */
     public function store(LoginRequest $request, CompanySubscriptionService $subscriptionService): RedirectResponse
-{
-    $request->authenticate();
+    {
+        $request->authenticate();
 
-    $user = $request->user();
+        $user = $request->user();
 
-    if ($user && !$user->is_super_admin) {
-        $company = Company::find($user->company_id);
-        if ($subscriptionService->isExpired($company)) {
-            Auth::guard('web')->logout();
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
+        if ($user && !$user->is_super_admin) {
+            $company = Company::find($user->company_id);
+            if ($subscriptionService->isExpired($company)) {
+                Auth::guard('web')->logout();
+                $request->session()->invalidate();
+                $request->session()->regenerateToken();
 
-            throw ValidationException::withMessages([
-                'email' => [(string) config('subscription.expired_message')],
-            ]);
+                throw ValidationException::withMessages([
+                    'email' => [(string) config('subscription.expired_message')],
+                ]);
+            }
+        }
+
+        $request->session()->regenerate();
+
+        $this->runPostLoginCommands($user);
+
+        if ($user->is_super_admin) {
+            return redirect()->route('companies.index');
+        }
+
+        return redirect()->route('company.properties.dashboard', $user->company_id);
+    }
+
+    /**
+     * Refresh overdue statuses and backfill any missing FX amounts after login.
+     */
+    private function runPostLoginCommands($user): void
+    {
+        try {
+            Artisan::call('property:mark-overdue');
+
+            $options = [];
+            if (!$user->is_super_admin && $user->company_id) {
+                $options['--company'] = $user->company_id;
+            }
+
+            Artisan::call('property:backfill-fx', $options);
+            Artisan::call('property:backfill-valuation-fx', $options);
+        } catch (Throwable $e) {
+            report($e);
         }
     }
-
-    $request->session()->regenerate();
-
-    if ($user->is_super_admin) {
-        return redirect()->route('companies.index');
-    }
-
-    return redirect()->route('company.properties.dashboard', $user->company_id);
-}
-
 
     /**
      * Destroy an authenticated session.
