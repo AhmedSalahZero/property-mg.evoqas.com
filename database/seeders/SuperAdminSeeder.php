@@ -12,7 +12,9 @@ class SuperAdminSeeder extends Seeder
     {
 		
 	
-	
+	/////////////
+	///////////////
+	///////////////////
         User::firstOrCreate(
             ['email' => 'fp@squadbcc.com'],
             [
