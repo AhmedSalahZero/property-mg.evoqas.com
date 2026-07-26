@@ -10,6 +10,9 @@ class SuperAdminSeeder extends Seeder
 {
     public function run(): void
     {
+		
+	
+	
         User::firstOrCreate(
             ['email' => 'fp@squadbcc.com'],
             [
