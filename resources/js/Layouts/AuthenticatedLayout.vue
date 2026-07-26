@@ -298,8 +298,8 @@ const toolsModules = computed(() => [
                                 </svg>
                             </button>
 
-                            <!-- Language Toggle -->
-                            <button @click="toggleLocale" class="fv-lang-btn"
+                            <!-- Language Toggle (temporarily disabled) -->
+                            <button v-if="false" @click="toggleLocale" class="fv-lang-btn"
                                 :title="locale === 'en' ? 'Switch to Arabic' : 'التبديل إلى الإنجليزية'">
                                 <span class="fv-lang-active">{{ locale === 'en' ? 'EN' : 'ع' }}</span>
                                 <span class="fv-lang-divider">/</span>
