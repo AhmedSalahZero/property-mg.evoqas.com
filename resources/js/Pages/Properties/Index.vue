@@ -156,6 +156,21 @@
                       <p v-if="prop.property_code" class="text-xs fv-text-muted font-mono">
                         {{ prop.property_code }}
                       </p>
+                      <p v-if="prop._isChildUnit" class="text-xs italic" style="color:#8b5cf6;">
+                        in {{ prop._parent.property_name }}
+                      </p>
+                      <p v-if="prop._sale" class="text-xs" style="color:#a78bfa;">
+                        Sold {{ formatDate(prop._sale.sale_date) }} — {{ formatCurrency(prop._sale.sale_price, prop._sale.currency) }}
+                        <span v-if="prop._sale.realized_gain_loss !== null"
+                          :style="prop._sale.realized_gain_loss >= 0 ? 'color:#4ade80;' : 'color:#f87171;'">
+                          ({{ prop._sale.realized_gain_loss >= 0 ? '+' : '' }}{{ formatCurrency(prop._sale.realized_gain_loss, prop._sale.base_currency) }})
+                        </span>
+                      </p>
+                      <button v-if="prop._sale?.payment_method === 'installments' && prop._sale.dues?.length"
+                        @click="openDuesModal(prop._sale)"
+                        class="text-xs fv-text-muted underline decoration-dotted hover:fv-text-primary">
+                        Receivables: {{ collectedDuesCount(prop._sale) }}/{{ prop._sale.dues.length }} collected
+                      </button>
                     </div>
                   </div>
                 </td>
@@ -187,11 +202,11 @@
                   </template>
                   <!-- Parent property: X of Y occupied -->
                   <template v-else>
-                    <span v-if="prop.units && prop.units.length > 0" class="text-xs fv-text-primary">
+                    <span v-if="activeUnitCount(prop) > 0" class="text-xs fv-text-primary">
                       <span :style="occupiedCount(prop) > 0 ? 'color:#4ade80;' : 'color:var(--fv-text-muted)'">
                         {{ occupiedCount(prop) }}
                       </span>
-                      <span class="fv-text-muted"> / {{ prop.units.length }} occupied</span>
+                      <span class="fv-text-muted"> / {{ activeUnitCount(prop) }} occupied</span>
                     </span>
                     <span v-else class="text-xs fv-text-muted">—</span>
                   </template>
@@ -214,30 +229,52 @@
                   <span v-else class="text-xs fv-text-muted">—</span>
                 </td>
 
-                <!-- Area — 2 decimal places max -->
+                <!-- Area — 2 decimal places max. For a Building/Land/Complex
+                     parent, this is the SUM of its still-owned (not sold)
+                     child units' area — confirmed July 2026. -->
                 <td class="px-4 py-3 text-right hidden lg:table-cell">
                   <span v-if="prop.nature === 'unit' && prop.area" class="text-xs fv-text-primary">
                     {{ formatArea(prop.area) }}
                     <span class="text-cyan-400">{{ prop.unit_of_measurement || '' }}</span>
                   </span>
-                  <span v-else class="text-xs fv-text-muted">—</span>
-                </td>
-
-                <!-- Acquisition Cost -->
-                <td class="px-4 py-3 text-right hidden xl:table-cell">
-                  <span v-if="prop.nature === 'unit' && prop.acquisition_cost" class="text-xs fv-text-primary">
-                    {{ formatCurrency(prop.acquisition_cost, prop.currency) }}
+                  <span v-else-if="prop.nature !== 'unit' && sumUnitsArea(prop) > 0" class="text-xs fv-text-primary">
+                    {{ formatArea(sumUnitsArea(prop)) }}
+                    <span class="text-cyan-400">{{ activeUnits(prop)[0]?.unit_of_measurement || '' }}</span>
                   </span>
                   <span v-else class="text-xs fv-text-muted">—</span>
                 </td>
 
-                <!-- Market Value -->
+                <!-- Acquisition Cost — SUM across active child units for a
+                     parent row, same rule as Area above. -->
+                <td class="px-4 py-3 text-right hidden xl:table-cell">
+                  <span v-if="prop.nature === 'unit' && prop.acquisition_cost" class="text-xs fv-text-primary">
+                    {{ formatCurrency(prop.acquisition_cost, prop.currency) }}
+                  </span>
+                  <span v-else-if="prop.nature !== 'unit' && sumUnitsAcquisitionCost(prop) > 0" class="text-xs fv-text-primary">
+                    {{ formatCurrency(sumUnitsAcquisitionCost(prop), activeUnits(prop)[0]?.currency) }}
+                  </span>
+                  <span v-else class="text-xs fv-text-muted">—</span>
+                </td>
+
+                <!-- Market Value — standalone unit shows its own latest
+                     entry (with date). A Building/Land/Complex parent shows
+                     the SUM of each active child unit's own latest market
+                     value — not just whichever single entry happens to be
+                     the most recently dated across the whole building
+                     (that was the previous behavior, and effectively
+                     ignored every unit but one) — confirmed July 2026. -->
                 <td class="px-4 py-3 text-right">
-                  <div v-if="latestMV(prop)">
+                  <div v-if="prop.nature === 'unit' && latestMV(prop)">
                     <p class="text-sm" style="color:#FAC775;">
                       {{ formatCurrency(latestMV(prop).market_value, prop.currency) }}
                     </p>
                     <p class="text-xs text-cyan-400">{{ latestMV(prop).value_date }}</p>
+                  </div>
+                  <div v-else-if="prop.nature !== 'unit' && sumUnitsMarketValue(prop) > 0">
+                    <p class="text-sm" style="color:#FAC775;">
+                      {{ formatCurrency(sumUnitsMarketValue(prop), activeUnits(prop)[0]?.currency) }}
+                    </p>
+                    <p class="text-xs fv-text-muted">sum of units' latest</p>
                   </div>
                   <span v-else class="text-xs fv-text-muted">—</span>
                 </td>
@@ -247,7 +284,7 @@
                   <span v-if="prop.nature !== 'unit'"
                     class="text-xs px-2 py-1 rounded-full fv-text-primary"
                     style="background:rgba(20,144,168,0.12); border:1px solid rgba(20,144,168,0.2);">
-                    {{ prop.units?.length || 0 }}
+                    {{ activeUnitCount(prop) }}
                   </span>
                   <span v-else class="text-xs fv-text-muted">—</span>
                 </td>
@@ -300,6 +337,47 @@
         </div>
       </div>
 
+      <!-- ── SALE RECEIVABLES SCHEDULE MODAL (Phase 2) ───────────────────── -->
+      <div v-if="duesModalSale"
+        class="fixed inset-0 flex items-center justify-center z-50 px-4"
+        style="background:rgba(0,0,0,0.6); backdrop-filter:blur(4px);">
+        <div class="rounded-2xl p-6 w-full max-w-lg shadow-2xl max-h-[85vh] overflow-y-auto"
+          style="background:var(--fv-bg-card,#112240); border:1px solid var(--fv-border);">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="fv-text-primary font-bold text-base">Receivable Schedule</h3>
+            <button @click="duesModalSale = null" class="fv-text-muted hover:fv-text-primary text-lg leading-none">✕</button>
+          </div>
+
+          <div v-for="due in duesModalSale.dues" :key="due.id"
+            class="flex items-center justify-between gap-3 py-3 border-b" style="border-color: var(--fv-border);">
+            <div>
+              <p class="text-sm fv-text-primary font-semibold">
+                {{ due.due_type === 'down_payment' ? 'Down Payment' : 'Installment' }}
+              </p>
+              <p class="text-xs fv-text-muted">
+                Due {{ formatDate(due.due_date) }} — {{ formatCurrency(due.amount, due.currency) }}
+              </p>
+              <p v-if="due.status === 'collected'" class="text-xs" style="color:#4ade80;">
+                Collected {{ formatDate(due.collected_date) }}
+              </p>
+              <p v-else-if="due.status === 'overdue'" class="text-xs" style="color:#f87171;">Overdue</p>
+              <p v-else class="text-xs fv-text-muted">Pending</p>
+            </div>
+            <div v-if="due.status !== 'collected'" class="flex items-center gap-2 flex-shrink-0">
+              <input type="date" v-model="collectDates[due.id]" class="fv-input rounded-lg px-2 py-1.5 text-xs" style="width:9rem;"/>
+              <button @click="markDueCollected(due)" :disabled="collectingDueId === due.id"
+                class="fv-btn-secondary px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-50">
+                {{ collectingDueId === due.id ? '…' : 'Collect' }}
+              </button>
+            </div>
+          </div>
+
+          <p v-if="!duesModalSale.dues?.length" class="text-sm fv-text-muted py-4 text-center">
+            No receivable rows on this sale.
+          </p>
+        </div>
+      </div>
+
     </div>
 
     <!-- ══════════════════════════════════════════════════════════════════
@@ -330,16 +408,18 @@
             visibility: dropdownReady ? 'visible' : 'hidden',
           }">
 
-          <!-- Edit Property -->
+          <!-- Edit Property — for a flattened child unit, there's no page
+               of its own; opens the parent Building/Land/Complex's Edit
+               screen instead (confirmed July 2026). -->
           <Link
-            :href="route('company.properties.edit', [company.id, dropdownProp.id])"
+            :href="route('company.properties.edit', [company.id, dropdownProp._isChildUnit ? dropdownProp._parent.id : dropdownProp.id])"
             class="dd-item px-4 py-2.5 text-sm"
             style="color:var(--fv-text-primary,#F1F5F9);">
             <svg class="w-4 h-4 flex-shrink-0" style="color:#1490A8;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
             </svg>
-            Edit Property
+            {{ dropdownProp._isChildUnit ? 'Edit Property (parent)' : 'Edit Property' }}
           </Link>
 
           <div style="border-top:1px solid var(--fv-border,#21518B); margin:0.25rem 0;"></div>
@@ -400,10 +480,41 @@
             Descriptions
           </button>
 
+          <!-- Sell Unit — standalone Unit or a flattened child unit,
+               whichever this row represents (nature is always 'unit' for
+               either shape). Hidden once already sold. -->
+          <button v-if="dropdownProp.nature === 'unit' && !dropdownProp.sold_at"
+            @click="openSellUnit(dropdownProp)"
+            class="dd-item px-4 py-2.5 text-sm"
+            style="color:var(--fv-text-primary,#F1F5F9);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color:#a78bfa;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 14l6-6m-5-3h5v5M9 21H5a2 2 0 01-2-2v-4m18-9v4a2 2 0 01-2 2h-4m0 8h4a2 2 0 002-2v-4"/>
+            </svg>
+            Sell Unit
+          </button>
+
+          <!-- Sell Entire Property — Building/Land/Complex parent rows
+               only, and only while at least one child unit isn't sold yet. -->
+          <button v-if="!dropdownProp._isChildUnit && ['building','land','complex'].includes(dropdownProp.nature) && activeUnitCount(dropdownProp) > 0"
+            @click="openSellWhole(dropdownProp)"
+            class="dd-item px-4 py-2.5 text-sm"
+            style="color:var(--fv-text-primary,#F1F5F9);">
+            <svg class="w-4 h-4 flex-shrink-0" style="color:#a78bfa;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 14l6-6m-5-3h5v5M9 21H5a2 2 0 01-2-2v-4m18-9v4a2 2 0 01-2 2h-4m0 8h4a2 2 0 002-2v-4"/>
+            </svg>
+            Sell Entire Property
+          </button>
+
           <div style="border-top:1px solid var(--fv-border,#21518B); margin:0.25rem 0;"></div>
 
-          <!-- Delete -->
-          <button @click="confirmDelete(dropdownProp)"
+          <!-- Delete — hidden for a flattened child unit: this action
+               deletes the whole parent property, which would be a
+               dangerous mismatch for a row that visually looks like a
+               single unit. Removing one unit is done from the parent's
+               Edit screen instead. -->
+          <button v-if="!dropdownProp._isChildUnit" @click="confirmDelete(dropdownProp)"
             class="dd-item px-4 py-2.5 text-sm"
             style="color:#f87171;">
             <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -418,15 +529,6 @@
 
     </Teleport>
 
-    <!-- ── INSTALLMENT MODAL ───────────────────────────────────────────── -->
-    <InstallmentModal
-      v-if="installmentProperty"
-      :show="showInstallmentModal"
-      :company="company"
-      :property="installmentProperty"
-      @close="showInstallmentModal = false"
-    />
-
     <PropertyDescriptionsModal
       :show="!!descriptionsModalProperty"
       :property="descriptionsModalProperty"
@@ -438,7 +540,6 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
-import InstallmentModal from '@/Pages/Properties/InstallmentModal.vue'
 import PropertyDescriptionsModal from '@/Components/PropertyDescriptionsModal.vue'
 import { Link, router } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
@@ -455,33 +556,121 @@ const searchQuery     = ref('')
 const deleteTarget    = ref(null)
 const openDropdown    = ref(null)          // prop.id of open row, or null
 
-// ── Installment Modal ──────────────────────────────────────────────────
-const showInstallmentModal = ref(false)
-const installmentProperty  = ref(null)
+// ── Descriptions Modal (still a modal — small, single-field) ────────────
 const descriptionsModalProperty = ref(null)
+
 const dropdownPos     = ref({ top: 0, left: 0 })
 const openUpward      = ref(false)         // true when dropdown flips above the button
 const btnRefs         = ref({})            // prop.id → <button> element
 
 // ── The property whose dropdown is currently open ──────────────────────
-const dropdownProp = computed(() =>
-  openDropdown.value !== null
-    ? (props.properties.find(p => p.id === openDropdown.value) ?? null)
-    : null
-)
+// Searches top-level properties AND both flattened row sets (allUnitRows,
+// soldRows), since a row's id can belong to any of them depending on
+// which tab it was opened from.
+const dropdownProp = computed(() => {
+  if (openDropdown.value === null) return null
+  return props.properties.find(p => p.id === openDropdown.value)
+    ?? allUnitRows.value.find(p => p.id === openDropdown.value)
+    ?? soldRows.value.find(p => p.id === openDropdown.value)
+    ?? null
+})
 
 // ── Tabs ───────────────────────────────────────────────────────────────
+// Properties shown in "All"/"Buildings"/"Land"/"Complexes": excludes a
+// standalone Unit once it's sold, and excludes a Building/Land/Complex
+// once EVERY one of its units has been sold (fully liquidated) — sold
+// items live in the "Sold" tab instead (confirmed July 2026).
+const activeProperties = computed(() =>
+  props.properties.filter(p => {
+    if (p.nature === 'unit') return !p.sold_at
+    const units = p.units || []
+    return units.length === 0 || units.some(u => !u.sold_at)
+  })
+)
+
+// ── Flatten NOT-YET-SOLD child units (Building/Land/Complex) alongside
+// standalone Units for the "Units" tab — confirmed July 2026: every child
+// slot (built_unit AND land_slot) counts, since either can carry its own
+// rent contract. Sold units are excluded here; they show under "Sold".
+const allUnitRows = computed(() => {
+  const rows = []
+  for (const p of props.properties) {
+    if (p.nature === 'unit') {
+      if (!p.sold_at) rows.push(p)
+      continue
+    }
+    for (const u of (p.units || [])) {
+      if (u.sold_at) continue
+      rows.push(buildChildUnitRow(p, u))
+    }
+  }
+  return rows
+})
+
+// ── Flatten every SOLD standalone unit and SOLD child unit — the "Sold"
+// tab, kept for historical reference (confirmed July 2026). Regardless of
+// whether the rest of that unit's parent building is still active.
+const soldRows = computed(() => {
+  const rows = []
+  for (const p of props.properties) {
+    if (p.nature === 'unit') {
+      if (p.sold_at) rows.push({ ...p, _sale: p.sales?.[0] ?? null })
+      continue
+    }
+    for (const u of (p.units || [])) {
+      if (u.sold_at) rows.push({ ...buildChildUnitRow(p, u), _sale: u.sales?.[0] ?? null })
+    }
+  }
+  return rows
+})
+
+function buildChildUnitRow(p, u) {
+  return {
+    id:                  `unit-${u.id}`,
+    _unitId:             u.id,
+    _isChildUnit:        true,
+    _parent:             p,
+    company_id:          p.company_id,
+    nature:              'unit',
+    property_name:       u.unit_name,
+    property_code:       u.unit_code,
+    ownership:           u.ownership || p.ownership,
+    owner_name:          u.owner_name,
+    governorate:         p.governorate,
+    province:            p.province,
+    location:            u.location || p.location,
+    property_category:   u.property_category,
+    property_type:       u.property_type,
+    area:                u.area,
+    unit_of_measurement: u.unit_of_measurement,
+    acquisition_cost:    u.acquisition_cost,
+    currency:            u.currency,
+    market_values:       u.market_values,
+    rent_contracts:      u.rent_contracts,
+    installment_plan:    p.installment_plan,
+    sold_at:             u.sold_at,
+    units:               null,
+  }
+}
+
 const tabs = computed(() => [
-  { key: 'all',      label: 'All',       count: props.properties.length },
-  { key: 'unit',     label: 'Units',     count: props.properties.filter(p => p.nature === 'unit').length },
-  { key: 'building', label: 'Buildings', count: props.properties.filter(p => p.nature === 'building').length },
-  { key: 'land',     label: 'Land',      count: props.properties.filter(p => p.nature === 'land').length },
-  { key: 'complex',  label: 'Complexes', count: props.properties.filter(p => p.nature === 'complex').length },
+  { key: 'all',      label: 'All',       count: activeProperties.value.length },
+  { key: 'unit',     label: 'Units',     count: allUnitRows.value.length },
+  { key: 'building', label: 'Buildings', count: activeProperties.value.filter(p => p.nature === 'building').length },
+  { key: 'land',     label: 'Land',      count: activeProperties.value.filter(p => p.nature === 'land').length },
+  { key: 'complex',  label: 'Complexes', count: activeProperties.value.filter(p => p.nature === 'complex').length },
+  { key: 'sold',     label: 'Sold',      count: soldRows.value.length },
 ])
 
 const filteredProperties = computed(() => {
-  let list = props.properties
-  if (activeTab.value !== 'all')  list = list.filter(p => p.nature === activeTab.value)
+  let list
+  if (activeTab.value === 'unit')       list = allUnitRows.value
+  else if (activeTab.value === 'sold')  list = soldRows.value
+  else                                   list = activeProperties.value
+
+  if (!['all', 'unit', 'sold'].includes(activeTab.value)) {
+    list = list.filter(p => p.nature === activeTab.value)
+  }
   if (filterOwnership.value)      list = list.filter(p => p.ownership === filterOwnership.value)
   if (searchQuery.value.trim()) {
     const q = searchQuery.value.trim().toLowerCase()
@@ -490,15 +679,20 @@ const filteredProperties = computed(() => {
       p.property_code?.toLowerCase().includes(q) ||
       p.governorate?.toLowerCase().includes(q)   ||
       p.province?.toLowerCase().includes(q)      ||
-      p.location?.toLowerCase().includes(q)
+      p.location?.toLowerCase().includes(q)      ||
+      p._parent?.property_name?.toLowerCase().includes(q) ||
+      p._parent?.property_code?.toLowerCase().includes(q)
     )
   }
-  return list
+  // Alphabetical by Property Name, A→Z.
+  return [...list].sort((a, b) =>
+    (a.property_name || '').localeCompare(b.property_name || '', undefined, { sensitivity: 'base' })
+  )
 })
 
 // ── KPI Strip ──────────────────────────────────────────────────────────
 const kpiStrip = computed(() => {
-  const all     = props.properties
+  const all     = activeProperties.value
   const units   = all.filter(p => p.nature === 'unit').length
   const bldgs   = all.filter(p => p.nature === 'building').length
   const land    = all.filter(p => p.nature === 'land').length
@@ -534,6 +728,9 @@ const parseMmYyyy = (str) => {
 
 // Determine status for a standalone unit (nature === 'unit')
 const unitStatus = (prop) => {
+  // 0. Sold — takes precedence over everything else
+  if (prop.sold_at) return 'sold'
+
   // 1. Has a running contract → Occupied
   if (prop.rent_contracts && prop.rent_contracts.length > 0) return 'occupied'
 
@@ -548,6 +745,7 @@ const unitStatus = (prop) => {
 }
 
 const unitStatusLabel = (prop) => ({
+  sold:          'Sold',
   occupied:      'Occupied',
   not_delivered: 'Not Delivered',
   vacant:        'Vacant',
@@ -555,6 +753,7 @@ const unitStatusLabel = (prop) => ({
 
 const unitStatusStyle = (prop) => {
   const s = unitStatus(prop)
+  if (s === 'sold')          return 'background:rgba(139,92,246,0.12); color:#a78bfa; border:1px solid rgba(139,92,246,0.25);'
   if (s === 'occupied')      return 'background:rgba(74,222,128,0.12); color:#4ade80; border:1px solid rgba(74,222,128,0.25);'
   if (s === 'not_delivered') return 'background:rgba(251,191,36,0.12); color:#fbbf24; border:1px solid rgba(251,191,36,0.25);'
   return 'background:rgba(107,150,184,0.1); color:#6B96B8; border:1px solid rgba(107,150,184,0.2);'
@@ -563,15 +762,36 @@ const unitStatusStyle = (prop) => {
 // Count occupied child units for a parent property
 const occupiedCount = (prop) => {
   if (!prop.units) return 0
-  return prop.units.filter(u => u.rent_contracts && u.rent_contracts.length > 0).length
+  return prop.units.filter(u => !u.sold_at && u.rent_contracts && u.rent_contracts.length > 0).length
 }
 
-const latestMV = (prop) => {
-  if (prop.nature === 'unit') return prop.market_values?.[0] ?? null
-  const allMVs = (prop.units || []).flatMap(u => u.market_values || [])
-  if (!allMVs.length) return null
-  return allMVs.sort((a, b) => b.value_date.localeCompare(a.value_date))[0]
-}
+// Active (not-sold) unit count for a parent — used by the "Units count"
+// column so a partially-sold building shows how many units are still
+// actually part of the portfolio, not its original total.
+const activeUnitCount = (prop) => (prop.units || []).filter(u => !u.sold_at).length
+
+// Active (not-sold) child units — the basis for every Building/Land/Complex
+// aggregate below (Area, Acquisition Cost, Market Value all sum only these,
+// confirmed July 2026 — a sold unit's figures belong to its own sale
+// record, not the still-owned portfolio).
+const activeUnits = (prop) => (prop.units || []).filter(u => !u.sold_at)
+
+const latestMV = (prop) => prop.market_values?.[0] ?? null
+
+const sumUnitsArea = (prop) =>
+  activeUnits(prop).reduce((s, u) => s + (parseFloat(u.area) || 0), 0)
+
+const sumUnitsAcquisitionCost = (prop) =>
+  activeUnits(prop).reduce((s, u) => s + (parseFloat(u.acquisition_cost) || 0), 0)
+
+// Sums each unit's OWN latest market value entry — not just whichever
+// single entry across the whole building happens to be the most recently
+// dated (that was the previous bug: it silently ignored every unit but one).
+const sumUnitsMarketValue = (prop) =>
+  activeUnits(prop).reduce((s, u) => {
+    const mv = u.market_values?.[0]
+    return s + (mv ? (parseFloat(mv.market_value) || 0) : 0)
+  }, 0)
 
 const formatCurrency = (val, currency = 'EGP') => {
   if (!val) return '—'
@@ -579,6 +799,51 @@ const formatCurrency = (val, currency = 'EGP') => {
     style: 'currency', currency: currency || 'EGP',
     minimumFractionDigits: 0, maximumFractionDigits: 0,
   }).format(val)
+}
+
+// Sale dates come back as ISO "YYYY-MM-DD" — display DD/MM/YYYY (Egypt
+// convention), same as the Exchange Rates table.
+const formatDate = (isoDate) => {
+  if (!isoDate) return '—'
+  const [y, m, d] = String(isoDate).split('-')
+  if (!y || !m || !d) return isoDate
+  return `${d}/${m}/${y}`
+}
+
+const collectedDuesCount = (sale) => (sale?.dues || []).filter(d => d.status === 'collected').length
+
+// ── Sale Receivables Schedule modal (Phase 2) ───────────────────────────
+const duesModalSale   = ref(null)
+const collectDates    = ref({})   // due.id → date string, defaults to today
+const collectingDueId = ref(null)
+
+function openDuesModal(sale) {
+  duesModalSale.value = sale
+  const today = new Date().toISOString().slice(0, 10)
+  for (const due of sale.dues || []) {
+    if (!(due.id in collectDates.value)) collectDates.value[due.id] = today
+  }
+}
+
+function markDueCollected(due) {
+  if (!duesModalSale.value) return
+  collectingDueId.value = due.id
+  router.post(
+    route('company.properties.sales.dues.collect', [props.company.id, duesModalSale.value.id, due.id]),
+    { collected_date: collectDates.value[due.id] || new Date().toISOString().slice(0, 10) },
+    {
+      preserveScroll: true,
+      onSuccess: () => {
+        // Reflect the change immediately in the open modal without
+        // waiting for a full page reload — Inertia does refresh
+        // props.properties on success too, but this keeps the modal's
+        // already-open list visually in sync the instant the click lands.
+        due.status = 'collected'
+        due.collected_date = collectDates.value[due.id]
+      },
+      onFinish: () => { collectingDueId.value = null },
+    }
+  )
 }
 
 // ── Area: max 2 decimal places, strip trailing zeros ──────────────────
@@ -636,20 +901,23 @@ const closeDropdown = () => { openDropdown.value = null; dropdownReady.value = f
 
 function openDescriptionsModal(prop) {
   closeDropdown()
-  descriptionsModalProperty.value = prop
+  // Tags are stored on the parent property only, not per child unit.
+  descriptionsModalProperty.value = prop._isChildUnit ? prop._parent : prop
 }
 
 // ── Navigate from dropdown ─────────────────────────────────────────────
 const goTo = (section) => {
-  const prop = dropdownProp.value;
+  const rowProp = dropdownProp.value;
   closeDropdown();
-  if (!prop) return;
+  if (!rowProp) return;
+  // A flattened child-unit row has no page of its own — every action
+  // operates on its parent Building/Land/Complex instead.
+  const prop = rowProp._isChildUnit ? rowProp._parent : rowProp;
 
   if (section === 'contracts') {
     window.location.href = route('company.properties.contracts.index', { company: prop.company_id, property: prop.id });
   } else if (section === 'installments') {
-    installmentProperty.value = prop
-    showInstallmentModal.value = true
+    window.location.href = route('company.properties.installments.index', { company: prop.company_id, property: prop.id });
   } else if (section === 'expenses') {
     window.location.href = route('company.properties.expenses.index', { company: prop.company_id, property: prop.id });
   } else if (section === 'reports') {
@@ -657,6 +925,24 @@ const goTo = (section) => {
   } else {
     alert(`"${section}" for "${prop.property_name}" — coming soon.`);
   }
+}
+
+// ── Sell — navigate to the dedicated Sell page ──────────────────────────
+// A flattened child-unit row sells via its parent property + unit id;
+// a standalone Unit row sells directly.
+function openSellUnit(prop) {
+  closeDropdown()
+  const isChild = prop._isChildUnit
+  if (isChild) {
+    window.location.href = route('company.properties.units.sell.form', [prop._parent.company_id, prop._parent.id, prop._unitId])
+  } else {
+    window.location.href = route('company.properties.sell.form', [prop.company_id, prop.id])
+  }
+}
+
+function openSellWhole(prop) {
+  closeDropdown()
+  window.location.href = route('company.properties.sell-whole.form', [prop.company_id, prop.id])
 }
 
 // ── Delete ─────────────────────────────────────────────────────────────

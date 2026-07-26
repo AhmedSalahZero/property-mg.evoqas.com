@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -11,14 +10,13 @@ use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Property extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
         'company_id',
         'nature',
         'property_name',
         'property_code',
         'ownership',
+        'owner_name',
         'country',
         'governorate',
         'province',
@@ -35,6 +33,7 @@ class Property extends Model
         'monthly_depreciation',
         'depreciation_duration_months',
         'is_active',
+        'sold_at',
         'sort_order',
         'acquisition_cost_base_amount',
         'book_value_base_amount',
@@ -50,6 +49,7 @@ class Property extends Model
         'monthly_depreciation'        => 'decimal:2',
         'depreciation_duration_months'=> 'integer',
         'is_active'                   => 'boolean',
+        'sold_at'                     => 'date',
         'sort_order'                  => 'integer',
         'acquisition_cost_base_amount'=> 'decimal:2',
         'book_value_base_amount'      => 'decimal:2',
@@ -119,6 +119,39 @@ class Property extends Model
     public function tags(): BelongsToMany
     {
         return $this->belongsToMany(Tag::class, 'property_tag')->orderBy('tags.name');
+    }
+
+    /**
+     * The following four relations exist solely so PropertyController::destroy()
+     * can explicitly cascade-delete every dependent row when a property is
+     * hard-deleted, rather than relying only on the database's own
+     * ON DELETE CASCADE foreign keys. Both are in place (belt and suspenders) —
+     * the explicit app-level delete guarantees correctness even if foreign key
+     * enforcement is ever off in a given environment.
+     */
+    public function expenses(): HasMany
+    {
+        return $this->hasMany(PropertyExpense::class);
+    }
+
+    public function installmentDues(): HasMany
+    {
+        return $this->hasMany(PropertyInstallmentDue::class);
+    }
+
+    public function sales(): HasMany
+    {
+        return $this->hasMany(PropertySale::class);
+    }
+
+    public function keepOrSellAnalyses(): HasMany
+    {
+        return $this->hasMany(KeepOrSellAnalysis::class);
+    }
+
+    public function corporateExpenseAllocations(): HasMany
+    {
+        return $this->hasMany(CorporateExpenseAllocation::class);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

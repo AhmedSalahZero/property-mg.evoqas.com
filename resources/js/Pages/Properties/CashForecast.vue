@@ -28,6 +28,7 @@ const unconvertedCurrencies = ref([])
 // ── Server data ───────────────────────────────────────────────────────────
 const months            = ref([])
 const rentByTypeUnit    = ref({})
+const saleReceivablesByTypeUnit = ref({})
 const installByTypeUnit = ref({})
 const expenseByItem     = ref({})
 const corporateExpenseByItem = ref({})
@@ -38,6 +39,7 @@ const loading           = ref(false)
 const cashInOpen      = ref(true)
 const cashOutOpen     = ref(true)
 const rentTypeOpen    = ref({})
+const saleTypeOpen    = ref({})
 const installTypeOpen = ref({})
 
 // ── User-entered data ─────────────────────────────────────────────────────
@@ -106,6 +108,18 @@ const rentTotals = computed(() => {
     return out
 })
 
+const saleReceivablesTotals = computed(() => {
+    const out = {}
+    months.value.forEach(m => {
+        let s = 0
+        Object.values(saleReceivablesByTypeUnit.value).forEach(units =>
+            Object.values(units).forEach(mMap => { s += n(mMap[m]) })
+        )
+        out[m] = s
+    })
+    return out
+})
+
 const otherCollTotals = computed(() => {
     const out = {}
     months.value.forEach(m => {
@@ -116,7 +130,7 @@ const otherCollTotals = computed(() => {
 
 const totalCashIn = computed(() => {
     const out = {}
-    months.value.forEach(m => { out[m] = rentTotals.value[m] + otherCollTotals.value[m] })
+    months.value.forEach(m => { out[m] = rentTotals.value[m] + saleReceivablesTotals.value[m] + otherCollTotals.value[m] })
     return out
 })
 
@@ -230,6 +244,7 @@ async function fetchData() {
 
         months.value            = data.months            || []
         rentByTypeUnit.value    = data.rentByTypeUnit    || {}
+        saleReceivablesByTypeUnit.value = data.saleReceivablesByTypeUnit || {}
         installByTypeUnit.value = data.installByTypeUnit || {}
         expenseByItem.value     = data.expenseByItem     || {}
         corporateExpenseByItem.value = data.corporateExpenseByItem || {}
@@ -265,6 +280,10 @@ async function fetchData() {
         const rt = {}
         Object.keys(rentByTypeUnit.value).forEach(t => { rt[t] = true })
         rentTypeOpen.value = rt
+
+        const st = {}
+        Object.keys(saleReceivablesByTypeUnit.value).forEach(t => { st[t] = true })
+        saleTypeOpen.value = st
 
         const it = {}
         Object.keys(installByTypeUnit.value).forEach(t => { it[t] = true })
@@ -660,6 +679,43 @@ watch([totalCashIn, totalCashOut, accumulated], () => nextTick(renderCharts), { 
                                        color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);
                                        border-left:1px solid var(--fv-border,#1B3558);">—</td>
                         </tr>
+
+                        <!-- Sale Receivables — type parent rows (Phase 2, confirmed
+                             July 2026: installment receivables from a unit/property
+                             sale flow into Cash Forecast the same way rent does) -->
+                        <template v-for="(units, typeName) in saleReceivablesByTypeUnit" :key="'st-'+typeName">
+                            <tr style="background:rgba(11,26,48,0.85);cursor:pointer;user-select:none;"
+                                @click="saleTypeOpen[typeName] = !saleTypeOpen[typeName]">
+                                <td style="position:sticky;left:0;z-index:10;background:rgba(11,26,48,0.85);
+                                           padding:8px 16px 8px 28px;font-size:11px;font-weight:600;
+                                           color:#E2E8F0;border-bottom:1px solid var(--fv-border,#1B3558);">
+                                    {{ saleTypeOpen[typeName] ? '▼' : '▶' }}&nbsp;&nbsp;{{ typeName }} (Sale Receivables)
+                                </td>
+                                <td v-for="m in months" :key="m"
+                                    style="padding:8px 12px;text-align:center;font-size:11px;font-weight:600;
+                                           color:#E2E8F0;border-bottom:1px solid var(--fv-border,#1B3558);
+                                           border-left:1px solid var(--fv-border,#1B3558);">
+                                    {{ fmt(Object.values(units).reduce((s,u)=>s+n(u[m]),0)) }}
+                                </td>
+                            </tr>
+                            <!-- Unit child rows -->
+                            <template v-if="saleTypeOpen[typeName]">
+                                <tr v-for="(mMap, unitName) in units" :key="'su-'+unitName"
+                                    style="background:rgba(17,34,64,0.7);">
+                                    <td style="position:sticky;left:0;z-index:10;background:rgba(17,34,64,0.7);
+                                               padding:6px 16px 6px 44px;font-size:11px;
+                                               color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);">
+                                        {{ unitName }}
+                                    </td>
+                                    <td v-for="m in months" :key="m"
+                                        style="padding:6px 12px;text-align:center;font-size:11px;
+                                               color:var(--fv-muted,#6B96B8);border-bottom:1px solid var(--fv-border,#1B3558);
+                                               border-left:1px solid var(--fv-border,#1B3558);">
+                                        {{ fmt(mMap[m]) }}
+                                    </td>
+                                </tr>
+                            </template>
+                        </template>
 
                         <!-- Other Collections — header -->
                         <tr style="background:rgba(11,26,48,0.7);">

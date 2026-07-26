@@ -10,6 +10,7 @@ use App\Services\CurrencyConversionService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Inertia\Inertia;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Http\Controllers\Concerns\AuthorizesCompany;
 
@@ -18,7 +19,27 @@ class PropertyInstallmentController extends Controller
     use AuthorizesCompany;
 
     // ═══════════════════════════════════════════════════════════════════
-    // LOAD — return plan + dues for the modal
+    // INDEX — dedicated full page (replaces the old modal-in-Properties-
+    // Index approach for a much friendlier, non-cramped working area).
+    // The page itself fetches plan + dues via load() below on mount, the
+    // same way every other Property tab (Dashboard, Cash Forecast, ...)
+    // renders a shell page and pulls its data from a companion /data
+    // endpoint.
+    // ═══════════════════════════════════════════════════════════════════
+    public function index(Company $company, Property $property)
+    {
+        $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
+        $this->authorizeInstallment($property);
+
+        return Inertia::render('Properties/Installments/Index', [
+            'company'  => $company,
+            'property' => $property,
+        ]);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // LOAD — return plan + dues (JSON, fetched by the page on mount)
     // ═══════════════════════════════════════════════════════════════════
     public function load(Company $company, Property $property)
     {

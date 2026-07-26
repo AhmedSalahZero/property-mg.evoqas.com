@@ -12,13 +12,18 @@ use App\Http\Controllers\CompanySettingsController;
 use App\Http\Controllers\LoanEngineController;
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\PropertyController;
+use App\Http\Controllers\PropertySaleController;
 use App\Http\Controllers\RentContractController;
 use App\Http\Controllers\PropertyInstallmentController;
 use App\Http\Controllers\PropertyExpenseController;
 use App\Http\Controllers\CorporateExpenseController;
 use App\Http\Controllers\PropertyReportController;
 use App\Http\Controllers\TagController;
+use App\Http\Controllers\ProvinceController;
+use App\Http\Controllers\PropertyOwnerController;
 use App\Http\Controllers\PropertyDashboardController;
+use App\Http\Controllers\PropertyRentCollectionController;
+use App\Http\Controllers\PropertyInstallmentPaymentController;
 use App\Http\Controllers\CashForecastController;
 use App\Http\Controllers\KeepOrSellController;
 use App\Http\Controllers\InvestmentDecisionController;
@@ -139,6 +144,20 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
         // ── Tags (company-scoped, reusable) ─────────────────────────────
         Route::get('tags/search', [TagController::class, 'search'])->name('tags.search');
         Route::post('tags', [TagController::class, 'store'])->name('tags.store');
+        Route::put('tags/{tag}', [TagController::class, 'update'])->name('tags.update');
+        Route::delete('tags/{tag}', [TagController::class, 'destroy'])->name('tags.destroy');
+
+        // ── Provinces / Districts (company-scoped managed list) ─────────
+        Route::get('provinces', [ProvinceController::class, 'index'])->name('provinces.index');
+        Route::post('provinces', [ProvinceController::class, 'store'])->name('provinces.store');
+        Route::put('provinces/{province}', [ProvinceController::class, 'update'])->name('provinces.update');
+        Route::delete('provinces/{province}', [ProvinceController::class, 'destroy'])->name('provinces.destroy');
+
+        // ── Property Owners (company-scoped managed list) ───────────────
+        Route::get('property-owners', [PropertyOwnerController::class, 'index'])->name('property-owners.index');
+        Route::post('property-owners', [PropertyOwnerController::class, 'store'])->name('property-owners.store');
+        Route::put('property-owners/{propertyOwner}', [PropertyOwnerController::class, 'update'])->name('property-owners.update');
+        Route::delete('property-owners/{propertyOwner}', [PropertyOwnerController::class, 'destroy'])->name('property-owners.destroy');
 
         // ── Properties ─────────────────────────────────────────────────
         // URL:  /companies/{company}/properties/...
@@ -149,6 +168,28 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
             Route::post('/',                  [PropertyController::class, 'store'])->name('store');
             Route::get('/dashboard',          [PropertyDashboardController::class, 'index'])->name('dashboard');
             Route::get('/dashboard/data',     [PropertyDashboardController::class, 'data'])->name('dashboard.data');
+
+            // ── Properties Rent Collection (portfolio-wide) ─────────────────────
+            // URL:  /companies/{company}/properties/rent-collections/...
+            // Name: company.properties.rent-collections.*
+            // Same static-before-wildcard rule as Corporate Expenses above —
+            // 'rent-collections' is a single path segment and MUST stay above
+            // '/{property}' or Laravel will try to bind it as a property id.
+            Route::prefix('rent-collections')->name('rent-collections.')->group(function () {
+                Route::get('/',       [PropertyRentCollectionController::class, 'index'])->name('index');
+                Route::get('/data',   [PropertyRentCollectionController::class, 'data'])->name('data');
+                Route::get('/export', [PropertyRentCollectionController::class, 'export'])->name('export');
+            });
+
+            // ── Properties Installment Payment (portfolio-wide) ─────────────────
+            // URL:  /companies/{company}/properties/installment-payments/...
+            // Name: company.properties.installment-payments.*
+            Route::prefix('installment-payments')->name('installment-payments.')->group(function () {
+                Route::get('/',       [PropertyInstallmentPaymentController::class, 'index'])->name('index');
+                Route::get('/data',   [PropertyInstallmentPaymentController::class, 'data'])->name('data');
+                Route::get('/export', [PropertyInstallmentPaymentController::class, 'export'])->name('export');
+            });
+
             Route::get('/cash-forecast',      [CashForecastController::class, 'index'])->name('cash-forecast');
             Route::get('/cash-forecast/data', [CashForecastController::class, 'data'])->name('cash-forecast.data');
             // Fix for audit finding H-4 — persist the manually-entered
@@ -244,6 +285,20 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
             Route::get('/{property}',         [PropertyController::class, 'show'])->name('show');
             Route::delete('/{property}',      [PropertyController::class, 'destroy'])->name('destroy');
 
+            // ── Record Sale (Phase 1, confirmed July 2026) ──────────────────
+            // URL:  /companies/{company}/properties/{property}/sell...
+            // Name: company.properties.sell / .units.sell / .sell-whole
+            // The GET "form" routes render the dedicated Sell page (moved out
+            // of the Properties Index modal); the POST routes underneath are
+            // unchanged and still do the actual save.
+            Route::get('/{property}/sell',               [PropertySaleController::class, 'sellUnitForm'])->name('sell.form');
+            Route::post('/{property}/sell',              [PropertySaleController::class, 'sellUnit'])->name('sell');
+            Route::get('/{property}/units/{unit}/sell',  [PropertySaleController::class, 'sellChildUnitForm'])->name('units.sell.form');
+            Route::post('/{property}/units/{unit}/sell', [PropertySaleController::class, 'sellChildUnit'])->name('units.sell');
+            Route::get('/{property}/sell-whole',          [PropertySaleController::class, 'sellWholeForm'])->name('sell-whole.form');
+            Route::post('/{property}/sell-whole',        [PropertySaleController::class, 'sellWhole'])->name('sell-whole');
+            Route::post('/sales/{sale}/dues/{due}/collect', [PropertySaleController::class, 'markDueCollected'])->name('sales.dues.collect');
+
             // ── Rent Contracts ───────────────────────────────────────────────
             // URL:  /companies/{company}/properties/{property}/contracts/...
             // Name: company.properties.contracts.*
@@ -257,6 +312,7 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
                 Route::get('/{contract}/renew',         [RentContractController::class, 'renew'])->name('renew');
                 Route::post('/{contract}/terminate',    [RentContractController::class, 'terminate'])->name('terminate');
                 Route::patch('/{contract}/collections/{collection}/collected', [RentContractController::class, 'markCollected'])->name('collections.collected');
+                Route::patch('/{contract}/collections/{collection}/uncollect', [RentContractController::class, 'markUncollected'])->name('collections.uncollect');
                 Route::delete('/{contract}/collections/{collection}', [RentContractController::class, 'deleteCollection'])->name('collections.destroy');
                 Route::delete('/{contract}',            [RentContractController::class, 'destroy'])->name('destroy');
             });
@@ -265,7 +321,8 @@ Route::middleware(['auth', 'verified', 'subscription.active'])->group(function (
             // URL:  /companies/{company}/properties/{property}/installments/...
             // Name: company.properties.installments.*
             Route::prefix('/{property}/installments')->name('installments.')->group(function () {
-                Route::get('/',                              [PropertyInstallmentController::class, 'load'])     ->name('load');
+                Route::get('/',                              [PropertyInstallmentController::class, 'index'])    ->name('index');
+                Route::get('/data',                          [PropertyInstallmentController::class, 'load'])     ->name('load');
                 Route::post('/',                             [PropertyInstallmentController::class, 'save'])     ->name('save');
                 Route::patch('/{due}/mark-paid',             [PropertyInstallmentController::class, 'markPaid'])->name('mark-paid');
                 Route::patch('/{due}/mark-unpaid',           [PropertyInstallmentController::class, 'markUnpaid'])->name('mark-unpaid');

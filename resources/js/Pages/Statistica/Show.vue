@@ -500,7 +500,7 @@
           <div class="p-6">
             <div class="bg-blue-950/40 border border-blue-800/50 rounded-lg p-4 mb-4 text-sm text-blue-300">
               <p class="font-semibold mb-1">File format (CSV or Excel):</p>
-              <p>Column A: Date (any recognizable format, e.g. 2026-01-15)</p>
+              <p>Column A: Date — format <strong>DD/MM/YYYY</strong> (e.g. 15/01/2026)</p>
               <p>Column B: Value (numeric)</p>
               <p>Column C: Notes (optional)</p>
               <p class="mt-2">First row is treated as a header and skipped. Duplicate dates will be updated.</p>

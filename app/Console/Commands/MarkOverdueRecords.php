@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\PropertyInstallmentDue;
+use App\Models\PropertySaleDue;
 use App\Models\RentCollection;
 use App\Models\RentContract;
 use Illuminate\Console\Command;
@@ -42,10 +43,12 @@ class MarkOverdueRecords extends Command
     {
         $overdueCollections   = RentCollection::autoMarkOverdue();
         $overdueInstallments  = PropertyInstallmentDue::autoMarkOverdue();
+        $overdueSaleDues      = PropertySaleDue::autoMarkOverdue();
         $expiredContracts     = RentContract::autoExpire();
 
         $this->info("Marked {$overdueCollections} rent collection(s) as overdue.");
         $this->info("Marked {$overdueInstallments} installment due(s) as overdue.");
+        $this->info("Marked {$overdueSaleDues} sale receivable due(s) as overdue.");
         $this->info("Expired {$expiredContracts} rent contract(s) past their end date.");
 
         return self::SUCCESS;

@@ -26,21 +26,52 @@ class CurrencyRateController extends Controller
     // ═══════════════════════════════════════════════════════════════════
     // INDEX
     // ═══════════════════════════════════════════════════════════════════
-    public function index(Company $company)
+    public function index(Request $request, Company $company)
     {
         $this->authorizeCompany($company);
 
-        $rates = CurrencyRate::forCompany($company->id)
+        // ── Currency tabs ──────────────────────────────────────────────
+        // Tabs = every currency the company is allowed to hold rates for,
+        // plus any currency that already has rows on file (covers old
+        // Excel imports that may have used a currency outside the
+        // standard list) — so a tab is never missing rates that exist.
+        $currencyOptions   = $this->currencyOptions($company);
+        $existingCurrencies = CurrencyRate::forCompany($company->id)
+            ->distinct()
+            ->pluck('currency')
+            ->all();
+        $tabs = array_values(array_unique(array_merge($currencyOptions, $existingCurrencies)));
+        sort($tabs);
+
+        $activeCurrency = strtoupper((string) $request->query('currency', 'ALL'));
+        if ($activeCurrency !== 'ALL' && !in_array($activeCurrency, $tabs, true)) {
+            $activeCurrency = 'ALL';
+        }
+
+        // Count per currency — shown as a small badge on each tab so the
+        // user can see where the data actually is before clicking in.
+        $countsByCurrency = CurrencyRate::forCompany($company->id)
+            ->select('currency', DB::raw('COUNT(*) as c'))
+            ->groupBy('currency')
+            ->pluck('c', 'currency');
+
+        // ── Rates — filtered by the active tab, paginated ──────────────
+        $perPage = 20;
+        $query = CurrencyRate::forCompany($company->id)
+            ->when($activeCurrency !== 'ALL', fn ($q) => $q->where('currency', $activeCurrency))
             ->orderByDesc('rate_date')
-            ->orderBy('currency')
-            ->get(['id', 'currency', 'rate_date', 'rate', 'source'])
-            ->map(fn ($r) => [
-                'id'        => $r->id,
-                'currency'  => $r->currency,
-                'rate_date' => $r->rate_date->format('Y-m-d'),
-                'rate'      => (float) $r->rate,
-                'source'    => $r->source,
-            ]);
+            ->orderBy('currency');
+
+        $paginated = $query->paginate($perPage, ['id', 'currency', 'rate_date', 'rate', 'source'])
+            ->withQueryString();
+
+        $rates = collect($paginated->items())->map(fn ($r) => [
+            'id'        => $r->id,
+            'currency'  => $r->currency,
+            'rate_date' => $r->rate_date->format('Y-m-d'),
+            'rate'      => (float) $r->rate,
+            'source'    => $r->source,
+        ])->values();
 
         // Statistica series available to pull from — this app already has a
         // fully working "Statistica" tab for tracking FX/commodity/rate
@@ -69,8 +100,17 @@ class CurrencyRateController extends Controller
             'company'          => $company,
             'baseCurrency'     => strtoupper($company->currency ?: 'EGP'),
             'rates'            => $rates,
-            'currencyOptions'  => $this->currencyOptions($company),
+            'currencyOptions'  => $currencyOptions,
             'statisticaSeries' => $statisticaSeries,
+            'tabs'             => $tabs,
+            'activeCurrency'   => $activeCurrency,
+            'countsByCurrency' => $countsByCurrency,
+            'pagination'       => [
+                'current_page' => $paginated->currentPage(),
+                'last_page'    => $paginated->lastPage(),
+                'per_page'     => $paginated->perPage(),
+                'total'        => $paginated->total(),
+            ],
         ]);
     }
 
@@ -123,6 +163,16 @@ class CurrencyRateController extends Controller
     public function importFromStatistica(Request $request, Company $company)
     {
         $this->authorizeCompany($company);
+
+        // 'nullable' only skips the 'date' rule when the value is actually
+        // null — an empty string ('' , sent whenever the user leaves the
+        // From/To fields blank, which is the normal case) still fails
+        // validation. That was silently blocking every pull that didn't
+        // set both date filters. Normalize blanks to null first.
+        $request->merge([
+            'date_from' => $request->filled('date_from') ? $request->input('date_from') : null,
+            'date_to'   => $request->filled('date_to') ? $request->input('date_to') : null,
+        ]);
 
         $data = $request->validate([
             'currency'  => 'required|string|max:10',

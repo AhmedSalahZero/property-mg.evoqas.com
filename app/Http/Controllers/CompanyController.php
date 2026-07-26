@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Company;
 use App\Services\CompanySubscriptionService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 
@@ -119,10 +120,40 @@ class CompanyController extends Controller
     {
         abort_unless($request->user()->is_super_admin, 403);
 
-        $company->delete(); // SoftDelete
+        // Fix — same "management system, not an archival one" policy
+        // already applied to Properties and Expenses: deleting a company
+        // must permanently remove it and everything under it, not just
+        // hide it.
+        //
+        // Unlike Property, this doesn't hand-list every dependent table —
+        // virtually every table in the app already has an explicit
+        // company_id foreign key set to ON DELETE CASCADE (verified across
+        // every migration), which is exactly what that constraint exists
+        // for. Deleting the company row lets the database cascade through
+        // properties (and everything under them — contracts, revenues,
+        // expenses, installments, etc.), corporate expenses, projects,
+        // tenants, tags, provinces, property owners, Statistica series,
+        // custom reports, Investment Decision prospects, Keep-or-Sell
+        // analyses, and all of Company Settings, correctly and in one
+        // step.
+        //
+        // The one deliberate exception is `users.company_id`, which is
+        // ON DELETE SET NULL rather than cascade (so a user account isn't
+        // silently destroyed just because SOME company they belonged to
+        // was removed). Since deleting a company here is meant to remove
+        // everything belonging to it, its staff users (Manager / Sales
+        // Manager / Analyst / Viewer / Company Admin) are deleted
+        // explicitly first — this in turn cleanly cascades their own
+        // personal tasks, project assignments, and time logs via their
+        // own already-cascading foreign keys. Super-admin accounts are
+        // never touched, regardless of company_id.
+        DB::transaction(function () use ($company) {
+            $company->users()->where('is_super_admin', false)->delete();
+            $company->delete();
+        });
 
         return redirect()->route('companies.index')
-            ->with('success', 'Company deleted successfully.');
+            ->with('success', 'Company and all related records permanently deleted.');
     }
 
     // ── Toggle active status ─────────────────────────────────────

@@ -83,9 +83,8 @@ class PropertyDashboardController extends Controller
     {
         // ── All properties ────────────────────────────────────────────
         $properties = Property::where('company_id', $companyId)
-            ->whereNull('deleted_at')
             ->with([
-                'units' => fn($q) => $q->whereNull('deleted_at'),
+                'units' => fn($q) => $q,
                 'marketValues' => fn($q) => $q->orderByDesc('value_date'),
                 'units.marketValues' => fn($q) => $q->orderByDesc('value_date'),
                 // Fix for audit H1 — delivery_date lives on the installment
@@ -99,6 +98,18 @@ class PropertyDashboardController extends Controller
             ])
             ->get();
 
+        // ── Active (not fully sold) properties — Phase 3 of Record Sale
+        // (confirmed July 2026): a sold standalone Unit, or a Building/
+        // Land/Complex whose every child unit has been sold, is no longer
+        // part of the current portfolio for count/occupancy purposes —
+        // same "fully liquidated" rule already applied to the Properties
+        // list page's tabs.
+        $activeProperties = $properties->filter(function ($p) {
+            if ($p->nature === 'unit') return !$p->sold_at;
+            $units = $p->units;
+            return $units->isEmpty() || $units->contains(fn ($u) => !$u->sold_at);
+        });
+
         // ── Running contracts to determine occupancy ──────────────────
         $runningContracts = RentContract::where('company_id', $companyId)
             ->where('status', 'running')
@@ -109,12 +120,16 @@ class PropertyDashboardController extends Controller
         $occupiedUnitIds     = $runningContracts->pluck('property_unit_id')->filter()->unique();
 
         // ── Counts by nature ──────────────────────────────────────────
-        $byNature = $properties->groupBy('nature')->map->count();
+        $byNature = $activeProperties->groupBy('nature')->map->count();
 
         // ── Financial totals ──────────────────────────────────────────
         // Fix for audit H2 — this now goes through the same shared
         // perPropertyFinancials() helper the Profitability tab uses, so the
         // two tabs can no longer silently disagree on unrealized gain.
+        // perPropertyFinancials() itself now excludes sold units/properties
+        // from these figures (Phase 3, confirmed July 2026) — a sold
+        // asset's gain is REALIZED (tracked on its property_sales row),
+        // not unrealized, so it must not still be counted here.
         $portfolioUnconvertedCurrencies = [];
         $financials = $this->perPropertyFinancials($companyId, $properties, $baseCurrency, $portfolioUnconvertedCurrencies);
         $totalAcquisitionCost = round($financials->sum('acquisition_cost'), 2);
@@ -127,6 +142,9 @@ class PropertyDashboardController extends Controller
 
         foreach ($properties as $p) {
             if ($p->nature === 'unit') {
+                // Sold — no longer a leasable slot at all (not "vacant").
+                if ($p->sold_at) continue;
+
                 $contract = $runningContracts->where('property_id', $p->id)->where('property_unit_id', null)->first();
                 $leasableSlots->push([
                     'property_id'   => $p->id,
@@ -143,6 +161,9 @@ class PropertyDashboardController extends Controller
                 ]);
             } else {
                 foreach ($p->units as $u) {
+                    // Sold — no longer a leasable slot at all.
+                    if ($u->sold_at) continue;
+
                     $contract = $runningContracts->where('property_unit_id', $u->id)->first();
                     $leasableSlots->push([
                         'property_id'   => $p->id,
@@ -172,7 +193,7 @@ class PropertyDashboardController extends Controller
         $occupiedArea  = $leasableSlots->where('status', 'occupied')->sum('area');
 
         return [
-            'total_properties'     => $properties->count(),
+            'total_properties'     => $activeProperties->count(),
             'by_nature'            => $byNature,
             'total_leasable'       => $leasableSlots->count(),
             'status_counts'        => $statusCounts,
@@ -282,9 +303,8 @@ class PropertyDashboardController extends Controller
         $unconvertedCurrencies ??= [];
 
         $properties ??= Property::where('company_id', $companyId)
-            ->whereNull('deleted_at')
             ->with([
-                'units' => fn($q) => $q->whereNull('deleted_at'),
+                'units' => fn($q) => $q,
                 'marketValues' => fn($q) => $q->orderByDesc('value_date'),
                 'units.marketValues' => fn($q) => $q->orderByDesc('value_date'),
             ])
@@ -312,6 +332,18 @@ class PropertyDashboardController extends Controller
 
         return $properties->map(function ($p) use ($read) {
             if ($p->nature === 'unit') {
+                // Sold — its gain is REALIZED (see property_sales), not
+                // unrealized; contributes nothing to current valuation.
+                if ($p->sold_at) {
+                    return [
+                        'id'               => $p->id,
+                        'property_name'    => $p->property_name,
+                        'acquisition_cost' => 0.0,
+                        'book_value'       => 0.0,
+                        'market_value'     => 0.0,
+                    ];
+                }
+
                 $mv = $p->marketValues->first();
                 return [
                     'id'               => $p->id,
@@ -324,6 +356,10 @@ class PropertyDashboardController extends Controller
 
             $acq = 0.0; $book = 0.0; $mv = 0.0;
             foreach ($p->units as $u) {
+                // Sold child unit — excluded from this building's current
+                // valuation the same way a sold standalone unit is above.
+                if ($u->sold_at) continue;
+
                 $acq  += $read($u->acquisition_cost_base_amount, $u->acquisition_cost, $u->currency);
                 $book += $read($u->book_value_base_amount, $u->book_value, $u->currency);
                 $latestUnitMv = $u->marketValues->first();
@@ -1435,9 +1471,9 @@ class PropertyDashboardController extends Controller
         // installmentPlan.delivery_date eager-load, fix H1) as the
         // Portfolio tab, so this insight's vacancy count can no longer
         // disagree with what the Portfolio tab itself shows.
-        $properties = Property::where('company_id', $companyId)->whereNull('deleted_at')
+        $properties = Property::where('company_id', $companyId)
             ->with([
-                'units' => fn($q) => $q->whereNull('deleted_at'),
+                'units' => fn($q) => $q,
                 'installmentPlan:id,property_id,delivery_date',
             ])->get();
 
@@ -1446,12 +1482,16 @@ class PropertyDashboardController extends Controller
         $vacant = 0;
         foreach ($properties as $p) {
             if ($p->nature === 'unit') {
+                if ($p->sold_at) continue; // sold — not vacant, just gone
+
                 $contract = $runningContracts->where('property_id', $p->id)->where('property_unit_id', null)->first();
                 if ($this->slotStatus($p->ownership, $p->installmentPlan?->delivery_date, $contract) === 'vacant') {
                     $vacant++;
                 }
             } else {
                 foreach ($p->units as $u) {
+                    if ($u->sold_at) continue; // sold — not vacant, just gone
+
                     $contract = $runningContracts->where('property_unit_id', $u->id)->first();
                     // installmentPlan is one-per-PROPERTY (see H1 fix above),
                     // so every child unit shares the parent's delivery_date.

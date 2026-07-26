@@ -153,8 +153,12 @@ class BackfillPropertyValuationBaseAmounts extends Command
         if (empty($value)) {
             return Carbon::today();
         }
+        $value = trim($value);
         try {
-            return Carbon::createFromFormat('m/Y', trim($value))->startOfMonth();
+            if (preg_match('#^\d{4}-\d{1,2}$#', $value)) {
+                return Carbon::createFromFormat('Y-m', $value)->startOfMonth();
+            }
+            return Carbon::createFromFormat('m/Y', $value)->startOfMonth();
         } catch (\Exception $e) {
             return Carbon::today();
         }

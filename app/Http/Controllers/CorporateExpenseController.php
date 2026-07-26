@@ -346,6 +346,12 @@ class CorporateExpenseController extends Controller
         $this->authorizeExpense($company, $expense);
         $expense->payments()->delete();
         $expense->allocations()->delete();
+        // Fix — the forecasted payment schedule (a separate table from
+        // actual payments — see CorporateExpense::paymentSchedule()) was
+        // never deleted here, so the Cash Forecast kept counting future
+        // expected outflows for expenses that had already been deleted.
+        // This is very likely the exact "still in the db" symptom reported.
+        $expense->paymentSchedule()->delete();
         $expense->delete();
         return back()->with('success', 'Corporate expense deleted.');
     }

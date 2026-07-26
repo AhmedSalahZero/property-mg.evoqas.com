@@ -37,16 +37,33 @@
   --fv-shadow:        0 4px 24px rgba(0, 0, 0, 0.5);
 }
 
-/* ── Light Mode ─────────────────────────────────────────────────── */
-html.light {
-  --fv-bg:            #1e5679;   /* Soft Blue-White                       */
-  --fv-bg-header:     #1e5679;   /* white header                          */
+/* ── Light Mode ─────────────────────────────────────────────────────
+   Fix (confirmed session): this block previously used the selector
+   `html.light`, but the actual theme toggle in AuthenticatedLayout.vue
+   sets `data-theme="light"` on <html>, never a `light` class — so this
+   entire block was dead code and light mode never applied anywhere
+   except the small nav/sidebar override set already living in that
+   layout file. Selector corrected to match the real toggle.
+
+   Also fixed two values that contradicted their own labels: --fv-bg was
+   #1e5679 (a dark teal-blue) despite being labeled "Soft Blue-White" —
+   and matching the file's own header comment above (#F0F8FD) — and
+   --fv-bg-header was the same dark color despite being labeled "white
+   header". Both corrected to what was clearly intended. --fv-bg and
+   --fv-border below are deliberately set to the same values
+   AuthenticatedLayout.vue's toggle already applies inline for these two
+   specific properties (inline style always wins the cascade over a
+   stylesheet), so there's no conflict between the two theming
+   mechanisms — everything else here is fully CSS-controlled. ───────── */
+[data-theme="light"] {
+  --fv-bg:            #F0F8FD;   /* Soft Blue-White                       */
+  --fv-bg-header:     #FFFFFF;   /* white header                          */
   --fv-bg-card:       #FFFFFF;   /* white cards                           */
   --fv-bg-input:      #EBF5FB;   /* light teal-tinted input bg            */
   --fv-bg-modal:      #FFFFFF;
   --fv-bg-hover:      #E2F6FA;   /* teal-50 hover                         */
 
-  --fv-border:        #C2D9E8;   /* steel-blue-200                        */
+  --fv-border:        #E2E8F0;   /* soft steel-blue-gray                  */
   --fv-border-focus:  #0C447C;   /* Navy focus                            */
 
   --fv-text-primary:  #0C447C;   /* Navy — primary text in light mode     */
@@ -63,7 +80,77 @@ html.light {
   --fv-gold-dim:      rgba(186, 117, 23, 0.10);
   --fv-gold-border:   rgba(186, 117, 23, 0.22);
 
-  --fv-shadow:        0 4px 24px rgba(12, 68, 124, 0.10);
+  --fv-shadow:        0 8px 30px rgba(12, 68, 124, 0.14);
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Light Mode — Component Enrichment
+   ─────────────────────────────────────────────────────────────────
+   Confirmed session #2: cards, badges, tags, and action-hover states
+   all use colors tuned to pop against the DARK navy card background
+   (translucent tints, pastel text like #34d399 / #48C4D8 / #FAC775) —
+   on a white light-mode card those same colors read as washed-out and
+   flat. Table headers had no background rule anywhere in the app at
+   all (dark mode gets away with this because the header text color
+   alone reads fine against the dark card). This section adds
+   targeted, light-mode-only overrides layered on top of the existing
+   shared component classes above — none of those base rules are
+   touched, so dark mode is completely unaffected.
+══════════════════════════════════════════════════════════════════ */
+
+/* ── Cards — real elevation instead of relying on the border alone.
+   The page background (#F0F8FD) and card background (#FFFFFF) are
+   very close in lightness, so without a shadow a card has almost
+   nothing separating it from the page and reads as flat/pale. ────── */
+[data-theme="light"] .fv-card,
+[data-theme="light"] .fv-company-card {
+  box-shadow: 0 2px 10px rgba(12, 68, 124, 0.07);
+}
+[data-theme="light"] .fv-card:hover,
+[data-theme="light"] .fv-company-card:hover {
+  box-shadow: 0 8px 28px rgba(12, 68, 124, 0.14);
+}
+
+/* ── Table Headers — solid Navy fill + white text on every <thead>,
+   applied globally so it takes effect on every table in the app with
+   zero changes needed to any individual .vue file. ─────────────────── */
+[data-theme="light"] table thead th {
+  background-color: var(--fv-blue);
+  color: #FFFFFF !important;
+}
+
+/* ── Badges — deepen the fill and darken the text. The dark-mode
+   pastel tones (e.g. #34d399 on a near-transparent tint) are tuned
+   for a navy backdrop and go nearly invisible on white. ───────────── */
+[data-theme="light"] .fv-badge-active {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+  border-color: rgba(16, 185, 129, 0.35);
+}
+[data-theme="light"] .fv-badge-inactive {
+  background: rgba(100, 116, 139, 0.14);
+  color: #475569;
+  border-color: rgba(100, 116, 139, 0.32);
+}
+
+/* ── Tags — same problem: #48C4D8 / #FAC775 are pastel accents built
+   for a dark card and are close to illegible on a white one. ─────── */
+[data-theme="light"] .fv-tag {
+  color: #0C6478;
+}
+[data-theme="light"] .fv-tag-gold {
+  color: #8A5A0F;
+}
+
+/* ── Action button hover states — same pastel-on-white problem. ────── */
+[data-theme="light"] .fv-action-btn:hover {
+  color: #0C6478;
+}
+[data-theme="light"] .fv-action-btn-danger:hover {
+  color: #DC2626;
+}
+[data-theme="light"] .fv-action-btn-settings:hover {
+  color: #8A5A0F;
 }
 
 /* ══════════════════════════════════════════════════════════════════

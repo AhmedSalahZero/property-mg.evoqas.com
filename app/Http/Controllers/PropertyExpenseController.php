@@ -244,6 +244,11 @@ class PropertyExpenseController extends Controller
         $this->authorizeProperty($company, $property);
         $this->authorizeExpense($property, $expense);
         $expense->payments()->delete();
+        // Fix — the forecasted payment schedule (a separate table from
+        // actual payments — see PropertyExpense::paymentSchedule()) was
+        // never deleted here, so the Cash Forecast kept counting future
+        // expected outflows for expenses that had already been deleted.
+        $expense->paymentSchedule()->delete();
         $expense->delete();
         return back()->with('success', 'Expense deleted.');
     }

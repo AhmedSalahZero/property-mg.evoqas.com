@@ -36,7 +36,7 @@
           </a>
 
           <a
-            v-if="rates.length"
+            v-if="totalAcrossTabs"
             :href="route('company.reports.currency-rates.export', company.id)"
             class="fv-btn-secondary px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-2"
           >
@@ -185,6 +185,25 @@
         </p>
       </div>
 
+      <!-- ── Currency Tabs ─────────────────────────────────────────── -->
+      <div class="flex items-center gap-2 flex-wrap border-b pb-px" style="border-color: var(--fv-border);">
+        <button
+          @click="goToTab('ALL')"
+          class="px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors"
+          :style="tabStyle('ALL')"
+        >
+          All <span class="fv-text-muted font-normal">({{ totalAcrossTabs }})</span>
+        </button>
+        <button
+          v-for="c in tabs" :key="c"
+          @click="goToTab(c)"
+          class="px-4 py-2 text-sm font-semibold rounded-t-lg transition-colors"
+          :style="tabStyle(c)"
+        >
+          {{ c }} <span class="fv-text-muted font-normal">({{ countsByCurrency[c] || 0 }})</span>
+        </button>
+      </div>
+
       <!-- ── Rates Table ───────────────────────────────────────────── -->
       <div class="fv-card overflow-x-auto">
         <table class="w-full text-sm">
@@ -200,12 +219,14 @@
           <tbody>
             <tr v-if="!rates.length">
               <td colspan="5" class="px-4 py-8 text-center fv-text-muted text-sm">
-                No exchange rates on file yet. Add one above, or upload an Excel file with your rate history.
+                {{ activeCurrency === 'ALL'
+                  ? 'No exchange rates on file yet. Add one above, or upload an Excel file with your rate history.'
+                  : `No exchange rates on file yet for ${activeCurrency}.` }}
               </td>
             </tr>
             <tr v-for="r in rates" :key="r.id" class="border-b" style="border-color: var(--fv-border);">
               <td class="px-4 py-2.5 fv-text-primary font-semibold">{{ r.currency }}</td>
-              <td class="px-4 py-2.5 fv-text-primary">{{ r.rate_date }}</td>
+              <td class="px-4 py-2.5 fv-text-primary">{{ formatDate(r.rate_date) }}</td>
               <td class="px-4 py-2.5 text-right fv-text-primary">{{ formatRate(r.rate) }}</td>
               <td class="px-4 py-2.5">
                 <span class="fv-tag" :class="r.source === 'manual' ? 'fv-tag-gold' : ''">
@@ -222,6 +243,30 @@
             </tr>
           </tbody>
         </table>
+
+        <!-- ── Pagination ──────────────────────────────────────────── -->
+        <div v-if="pagination.total > 0" class="flex items-center justify-between px-4 py-3 border-t text-sm" style="border-color: var(--fv-border);">
+          <span class="fv-text-muted">
+            Showing page {{ pagination.current_page }} of {{ pagination.last_page }}
+            ({{ pagination.total }} rate{{ pagination.total === 1 ? '' : 's' }}{{ activeCurrency !== 'ALL' ? ` — ${activeCurrency}` : '' }})
+          </span>
+          <div class="flex items-center gap-2">
+            <button
+              @click="goToPage(pagination.current_page - 1)"
+              :disabled="pagination.current_page <= 1"
+              class="fv-btn-secondary px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40"
+            >
+              ← Previous
+            </button>
+            <button
+              @click="goToPage(pagination.current_page + 1)"
+              :disabled="pagination.current_page >= pagination.last_page"
+              class="fv-btn-secondary px-3 py-1.5 rounded-lg text-xs font-semibold disabled:opacity-40"
+            >
+              Next →
+            </button>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -239,6 +284,13 @@ const props = defineProps({
   rates: Array,
   currencyOptions: Array,
   statisticaSeries: Array,
+  tabs: { type: Array, default: () => [] },
+  activeCurrency: { type: String, default: 'ALL' },
+  countsByCurrency: { type: Object, default: () => ({}) },
+  pagination: {
+    type: Object,
+    default: () => ({ current_page: 1, last_page: 1, per_page: 20, total: 0 }),
+  },
 })
 
 const page = usePage()
@@ -272,7 +324,7 @@ function submitRate() {
 }
 
 function removeRate(r) {
-  if (!confirm(`Delete the ${r.currency} rate for ${r.rate_date}?`)) return
+  if (!confirm(`Delete the ${r.currency} rate for ${formatDate(r.rate_date)}?`)) return
   router.delete(
     route('company.reports.currency-rates.destroy', [props.company.id, r.id]),
     { preserveScroll: true }
@@ -283,8 +335,49 @@ function formatRate(v) {
   return Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })
 }
 
+// Table displays dates DD/MM/YYYY (Egypt convention); the underlying
+// value stored/sent to the backend stays ISO (YYYY-MM-DD) — only this
+// display string changes.
+function formatDate(isoDate) {
+  if (!isoDate) return '—'
+  const [y, m, d] = String(isoDate).split('-')
+  if (!y || !m || !d) return isoDate
+  return `${d}/${m}/${y}`
+}
+
 function sourceLabel(source) {
   return { manual: 'Manual', excel_import: 'Excel Import', statistica_import: 'From Statistica' }[source] || source
+}
+
+// ── Currency tabs + pagination ────────────────────────────────────────
+// Total across every currency, for the "All" tab's count badge and the
+// Export button's visibility — independent of whichever tab/page is
+// currently showing.
+const totalAcrossTabs = computed(() =>
+  Object.values(props.countsByCurrency || {}).reduce((sum, n) => sum + Number(n), 0)
+)
+
+function tabStyle(tab) {
+  const isActive = props.activeCurrency === tab
+  return isActive
+    ? 'color: var(--fv-gold); border-bottom: 2px solid var(--fv-gold); background: rgba(186,117,23,0.08);'
+    : 'color: var(--fv-text-muted); border-bottom: 2px solid transparent;'
+}
+
+function goToTab(tab) {
+  goTo(tab, 1)
+}
+
+function goToPage(page) {
+  goTo(props.activeCurrency, page)
+}
+
+function goTo(currency, page) {
+  router.get(
+    route('company.reports.currency-rates.index', props.company.id),
+    { currency: currency === 'ALL' ? undefined : currency, page },
+    { preserveState: true, preserveScroll: true, replace: true }
+  )
 }
 
 // ── Pull from Statistica ─────────────────────────────────────────────
@@ -302,7 +395,11 @@ function submitPull() {
   pulling.value = true
   router.post(
     route('company.reports.currency-rates.from-statistica', props.company.id),
-    { ...pullForm.value },
+    {
+      ...pullForm.value,
+      date_from: pullForm.value.date_from || null,
+      date_to: pullForm.value.date_to || null,
+    },
     {
       preserveScroll: true,
       onSuccess: () => { showPullForm.value = false },

@@ -6,6 +6,7 @@ use App\Models\Company;
 use App\Models\Property;
 use App\Models\Tag;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use App\Http\Controllers\Concerns\AuthorizesCompany;
 
 class TagController extends Controller
@@ -88,6 +89,54 @@ class TagController extends Controller
             'message' => 'Tags updated.',
             'data' => $property->tags()->get(['tags.id', 'tags.name']),
         ]);
+    }
+
+    /**
+     * Rename a tag globally for the company. Since tags are attached to
+     * properties by ID (via the `property_tag` pivot — see Tag::properties()),
+     * renaming here automatically reflects everywhere that tag is already
+     * attached — no separate cascade update needed (unlike the plain-string
+     * Province/Owner Name lists).
+     */
+    public function update(Request $request, Company $company, Tag $tag)
+    {
+        $this->authorizeCompany($company);
+        abort_unless($tag->company_id === $company->id, 404);
+
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:150'],
+        ]);
+
+        $name = Str::limit(trim($data['name']), 150, '');
+        $normalized = Str::lower($name);
+
+        $duplicate = Tag::where('company_id', $company->id)
+            ->where('normalized_name', $normalized)
+            ->where('id', '!=', $tag->id)
+            ->exists();
+
+        if ($duplicate) {
+            return response()->json(['message' => 'A tag with that name already exists.'], 422);
+        }
+
+        $tag->update(['name' => $name]);
+
+        return response()->json(['tag' => ['id' => $tag->id, 'name' => $tag->name]]);
+    }
+
+    /**
+     * Delete a tag globally for the company. The pivot rows on
+     * `property_tag` cascade-delete with it (see the tags/property_tag
+     * migration), so it's removed from every property it was attached to.
+     */
+    public function destroy(Company $company, Tag $tag)
+    {
+        $this->authorizeCompany($company);
+        abort_unless($tag->company_id === $company->id, 404);
+
+        $tag->delete();
+
+        return response()->json(['message' => 'Tag deleted.']);
     }
 
     private function assertPropertyBelongsToCompany(Company $company, Property $property): void

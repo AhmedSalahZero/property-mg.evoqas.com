@@ -18,6 +18,52 @@ class StatisticaController extends Controller
     // HELPERS
     // ─────────────────────────────────────────────────────────────────────────
 
+    // Import dates are ALWAYS treated as DD/MM/YYYY first (matching the
+    // template + the popup instructions), never handed to Carbon::parse()
+    // as a first resort. Carbon::parse()/strtotime() treat "/" separated
+    // dates as US-style MM/DD/YYYY — so "15/03/2026" would throw (no month
+    // 15) and "03/04/2026" would silently become 4 March instead of 3 April.
+    // That mismatch was the actual reason most rows were being skipped.
+    private function parseImportDate(string $raw): ?string
+    {
+        $raw = trim($raw);
+        if ($raw === '') return null;
+
+        // DD/MM/YYYY or D/M/YYYY (the template's format)
+        if (preg_match('#^(\d{1,2})/(\d{1,2})/(\d{4})$#', $raw, $m)) {
+            $day = (int) $m[1]; $month = (int) $m[2]; $year = (int) $m[3];
+            if (checkdate($month, $day, $year)) {
+                return Carbon::createFromDate($year, $month, $day)->format('Y-m-d');
+            }
+            return null; // e.g. 15/15/2026 — not a valid date, don't guess
+        }
+
+        // DD-MM-YYYY variant
+        if (preg_match('#^(\d{1,2})-(\d{1,2})-(\d{4})$#', $raw, $m)) {
+            $day = (int) $m[1]; $month = (int) $m[2]; $year = (int) $m[3];
+            if (checkdate($month, $day, $year)) {
+                return Carbon::createFromDate($year, $month, $day)->format('Y-m-d');
+            }
+            return null;
+        }
+
+        // Already ISO (YYYY-MM-DD) — unambiguous, safe to parse directly
+        if (preg_match('#^\d{4}-\d{1,2}-\d{1,2}$#', $raw)) {
+            try {
+                return Carbon::parse($raw)->format('Y-m-d');
+            } catch (\Exception $e) {
+                return null;
+            }
+        }
+
+        // Last resort for anything else (e.g. "15 Jan 2026") — Carbon::parse
+        // only reached here, never for plain slash/dash numeric dates.
+        try {
+            return Carbon::parse($raw)->format('Y-m-d');
+        } catch (\Exception $e) {
+            return null;
+        }
+    }
 
     private function authorizeWrite(Company $company): void
     {
@@ -420,11 +466,14 @@ class StatisticaController extends Controller
 
                 if (empty($rawDate) && $rawDate !== 0) continue;
 
-                // Excel stores dates as numeric serials — convert properly
+                // Excel stores real date cells as numeric serials — convert
+                // properly. Otherwise the cell is plain text (e.g. typed as
+                // "15/03/2026") and must go through the DD/MM/YYYY-first
+                // parser below, not PHP's US-style slash-date guessing.
                 if (is_numeric($rawDate) && \PhpOffice\PhpSpreadsheet\Shared\Date::isDateTime($dateCell)) {
                     $dateStr = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject($rawDate)->format('Y-m-d');
                 } else {
-                    $dateStr = trim((string) $rawDate);
+                    $dateStr = $this->parseImportDate((string) $rawDate) ?? trim((string) $rawDate);
                 }
 
                 // ── Value cell (column B) ──
@@ -459,8 +508,10 @@ class StatisticaController extends Controller
                 if (is_numeric($row['date']) && (int)$row['date'] > 1000) {
                     $date = \PhpOffice\PhpSpreadsheet\Shared\Date::excelToDateTimeObject((float)$row['date'])->format('Y-m-d');
                 } else {
-                    $date = Carbon::parse($row['date'])->format('Y-m-d');
+                    $date = $this->parseImportDate((string) $row['date']);
                 }
+
+                if (!$date) { $skipped++; continue; }
 
                 $value = is_numeric($row['value']) ? (float) $row['value'] : null;
                 if ($value === null) { $skipped++; continue; }
@@ -556,10 +607,10 @@ class StatisticaController extends Controller
     {
         $this->authorizeCompany($company);
 
-        $csv  = "Date,Value,Notes\n";
-        $csv .= "2026-01-01,30.50,Optional note\n";
-        $csv .= "2026-01-02,30.55,\n";
-        $csv .= "2026-01-03,30.48,\n";
+        $csv  = "Date (DD/MM/YYYY),Value,Notes\n";
+        $csv .= "01/01/2026,30.50,Optional note\n";
+        $csv .= "02/01/2026,30.55,\n";
+        $csv .= "03/01/2026,30.48,\n";
 
         return response($csv, 200, [
             'Content-Type'        => 'text/csv',

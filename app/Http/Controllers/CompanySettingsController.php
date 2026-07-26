@@ -32,36 +32,36 @@ class CompanySettingsController extends Controller
         return Inertia::render('CompanySettings/Index', [
             'company' => $company,
 
-            // ── Tenants ──────────────────────────────────────────────
+            // ── Tenants ────────────────────────────────────────────── A→Z
             'tenants' => Customer::where('company_id', $company->id)
-                ->orderBy('sort_order')
                 ->orderBy('customer_name')
+                ->orderBy('id')
                 ->get(['id', 'customer_name', 'business_sector', 'tenant_nature', 'is_related_party', 'is_active']),
 
-            // ── Manpower — HQ only (no branch titles) ────────────────
+            // ── Manpower — HQ only (no branch titles) ────────────────  A→Z
             'departments' => ManpowerDepartment::where('company_id', $company->id)
-                ->with(['titles' => fn($q) => $q->where('is_branch_title', false)->orderBy('sort_order')])
-                ->orderBy('sort_order')
+                ->with(['titles' => fn($q) => $q->where('is_branch_title', false)->orderBy('title_name')->orderBy('id')])
+                ->orderBy('department_name')
                 ->orderBy('id')
                 ->get(),
 
-            // ── Costs & Expenses ─────────────────────────────────────
+            // ── Costs & Expenses ─────────────────────────────────────  A→Z
             'expenseCategories' => ExpenseCategory::where('company_id', $company->id)
-                ->with('items')
-                ->orderBy('sort_order')
+                ->with(['items' => fn($q) => $q->orderBy('item_name')->orderBy('id')])
+                ->orderBy('category_name')
                 ->orderBy('id')
                 ->get(),
 
-            // ── Fixed Assets ─────────────────────────────────────────
+            // ── Fixed Assets ─────────────────────────────────────────  A→Z
             'fixedAssets' => FixedAssetSetting::where('company_id', $company->id)
-                ->orderBy('sort_order')
+                ->orderBy('asset_name')
                 ->orderBy('id')
                 ->get(),
 
-            // ── Property Categories & Types ───────────────────────────
+            // ── Property Categories & Types ───────────────────────────  A→Z
             'propertyCategories' => PropertyCategory::where('company_id', $company->id)
-                ->with(['types' => fn($q) => $q->orderBy('sort_order')->orderBy('id')])
-                ->orderBy('sort_order')
+                ->with(['types' => fn($q) => $q->orderBy('type_name')->orderBy('id')])
+                ->orderBy('category_name')
                 ->orderBy('id')
                 ->get(),
 

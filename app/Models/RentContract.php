@@ -421,7 +421,32 @@ class RentContract extends Model
         // ── Reconcile against existing rows ─────────────────────────────────
         $existing = $this->collections()->get()->keyBy(fn ($c) => $c->collection_date->format('Y-m-d'));
 
-        $keepIds  = [];
+        // Fix — this used to build $keepIds as it went (existing rows that
+        // matched the new schedule), insert every brand-new row, and only
+        // THEN delete "whereNotIn($keepIds) AND status=pending". Since a
+        // freshly-inserted row's id was never added to $keepIds (it didn't
+        // exist yet when $keepIds was built), that final cleanup deleted
+        // every row this same run had just inserted a moment earlier — on
+        // any contract with no pre-existing collections (every brand-new
+        // contract, or any contract whose collections had already been
+        // wiped by this exact bug on a previous save), the net result was
+        // always zero collection rows, even though rent_revenues generated
+        // correctly, since that step is a separate, unaffected delete+rebuild.
+        //
+        // Fixed by determining which EXISTING rows are obsolete (still
+        // pending, and no longer part of the new desired schedule) and
+        // deleting only those, BEFORE anything new is inserted — so a
+        // newly-inserted row can never be mistaken for something to clean up.
+        $obsoleteIds = $existing
+            ->reject(fn ($row, $dateKey) => isset($desired[$dateKey]))
+            ->where('status', RentCollection::STATUS_PENDING)
+            ->pluck('id')
+            ->all();
+
+        if (!empty($obsoleteIds)) {
+            $this->collections()->whereIn('id', $obsoleteIds)->delete();
+        }
+
         $toInsert = [];
 
         foreach ($desired as $dateKey => $row) {
@@ -429,7 +454,6 @@ class RentContract extends Model
 
             if ($match && $match->status !== RentCollection::STATUS_PENDING) {
                 // Already collected, or aged into overdue — historical fact, don't touch.
-                $keepIds[] = $match->id;
                 continue;
             }
 
@@ -445,7 +469,6 @@ class RentContract extends Model
                     'base_currency'      => $row['base_currency'],
                     'fx_rate_used'       => $row['fx_rate_used'],
                 ]);
-                $keepIds[] = $match->id;
                 continue;
             }
 
@@ -470,14 +493,6 @@ class RentContract extends Model
         if (!empty($toInsert)) {
             \DB::table('rent_collections')->insert($toInsert);
         }
-
-        // Remove obsolete rows — but ONLY ones still pending. Anything collected
-        // or overdue is history and must survive even if it fell outside the
-        // newly generated schedule (see "Known limitation" above).
-        $this->collections()
-            ->whereNotIn('id', $keepIds)
-            ->where('status', RentCollection::STATUS_PENDING)
-            ->delete();
     }
 
     /**

@@ -39,8 +39,7 @@ class KeepOrSellController extends Controller
 
         $properties = Property::where('company_id', $companyId)
             ->where('is_active', 1)
-            ->whereNull('deleted_at')
-            ->with(['units' => fn($q) => $q->where('is_active', 1)->whereNull('deleted_at')
+            ->with(['units' => fn($q) => $q->where('is_active', 1)
                 ->select('id', 'property_id', 'unit_name', 'ownership')])
             ->select('id', 'property_name', 'nature', 'ownership')
             ->orderBy('property_name')

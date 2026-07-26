@@ -8,6 +8,7 @@ use App\Models\Property;
 use App\Models\PropertyUnit;
 use App\Models\RentContract;
 use App\Models\RentCollection;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
@@ -352,6 +353,44 @@ class RentContractController extends Controller
         ]);
 
         return back()->with('success', 'Collection marked as collected.');
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // UNCOLLECT — undo a Mark Collected, keeping the row intact
+    // ═══════════════════════════════════════════════════════════════════
+    /**
+     * Confirmed product decision (July 2026 session): the Delete button on
+     * a collection row was removed from the UI, because a collection is a
+     * scheduled slice of the contract's revenue, not something the user
+     * created by hand — deleting one outright can desync the schedule
+     * from the contract. This is the real "undo" instead, mirroring
+     * PropertyInstallmentDue's markUnpaid() exactly: the row survives,
+     * only its status and collected_date are reverted. Status reverts to
+     * 'overdue' if collection_date has already passed, 'pending'
+     * otherwise — the same state a freshly-generated row in that
+     * situation would be in, rather than silently going stale.
+     */
+    public function markUncollected(Company $company, Property $property, RentContract $contract, RentCollection $collection)
+    {
+        $this->authorizeCompany($company);
+        $this->authorizeProperty($company, $property);
+        $this->authorizeContract($property, $contract);
+        abort_unless($collection->rent_contract_id === $contract->id, 404);
+
+        if ($collection->status !== RentCollection::STATUS_COLLECTED) {
+            return back()->withErrors(['collection' => 'This collection is not currently marked as collected.']);
+        }
+
+        $newStatus = Carbon::parse($collection->collection_date)->lt(Carbon::today())
+            ? RentCollection::STATUS_OVERDUE
+            : RentCollection::STATUS_PENDING;
+
+        $collection->update([
+            'status'         => $newStatus,
+            'collected_date' => null,
+        ]);
+
+        return back()->with('success', 'Collection reverted to ' . $newStatus . '.');
     }
 
     // ═══════════════════════════════════════════════════════════════════

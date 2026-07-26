@@ -60,7 +60,7 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
 
             <!-- Property Name -->
-            <div class="lg:col-span-2">
+            <div>
               <label class="fv-label">Property Name <span class="text-red-400">*</span></label>
               <input v-model="form.property_name" class="fv-input w-full rounded-lg px-3 py-2 text-sm"
                 placeholder="e.g. Nile Tower — Unit 5B" />
@@ -75,6 +75,23 @@
                 <option v-for="o in ownershipOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
               </select>
               <p v-if="errors.ownership" class="err-msg">{{ errors.ownership }}</p>
+            </div>
+
+            <!-- Owner Name — only relevant when the property isn't a
+                 company asset (Usufruct / Managed For Others) -->
+            <div v-if="hideAssetFields(form.ownership)">
+              <ManagedComboBox
+                v-model="form.owner_name"
+                v-model:options="propertyOwnersList"
+                :company-id="company.id"
+                label="Owner Name"
+                :required="true"
+                placeholder="— Select —"
+                store-route-name="company.property-owners.store"
+                update-route-name="company.property-owners.update"
+                destroy-route-name="company.property-owners.destroy"
+                :error="errors.owner_name"
+              />
             </div>
 
             <!-- Property Code -->
@@ -105,9 +122,16 @@
 
             <!-- Province -->
             <div>
-              <label class="fv-label">Province / District</label>
-              <input v-model="form.province" class="fv-input w-full rounded-lg px-3 py-2 text-sm"
-                placeholder="e.g. New Cairo, Maadi, 6th of October" />
+              <ManagedComboBox
+                v-model="form.province"
+                v-model:options="provincesList"
+                :company-id="company.id"
+                label="Province / District"
+                placeholder="— Select —"
+                store-route-name="company.provinces.store"
+                update-route-name="company.provinces.update"
+                destroy-route-name="company.provinces.destroy"
+              />
             </div>
 
             <!-- Location — full width -->
@@ -428,6 +452,23 @@
                       <option value="">— Inherit from parent —</option>
                       <option v-for="o in ownershipOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
                     </select>
+                  </div>
+
+                  <!-- Owner Name — only relevant when this unit's effective
+                       ownership is Usufruct / Managed For Others -->
+                  <div v-if="hideAssetFields(effectiveOwnership(unit))">
+                    <ManagedComboBox
+                      v-model="unit.owner_name"
+                      v-model:options="propertyOwnersList"
+                      :company-id="company.id"
+                      label="Owner Name"
+                      :required="true"
+                      placeholder="— Select —"
+                      store-route-name="company.property-owners.store"
+                      update-route-name="company.property-owners.update"
+                      destroy-route-name="company.property-owners.destroy"
+                      :error="errors[`units.${idx}.owner_name`]"
+                    />
                   </div>
 
                   <!-- Category (built_unit only) -->
@@ -761,6 +802,7 @@ import { ref, computed } from 'vue'
 import { Link, router, usePage } from '@inertiajs/vue3'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import TagInput from '@/Components/TagInput.vue'
+import ManagedComboBox from '@/Components/ManagedComboBox.vue'
 
 // ── Props ──────────────────────────────────────────────────────────────
 const props = defineProps({
@@ -771,7 +813,15 @@ const props = defineProps({
   governorates:     { type: Array, default: () => [] },
   uomOptions:       { type: Array, default: () => [] },
   currencyOptions:  { type: Array, default: () => [] },
+  provinces:        { type: Array, default: () => [] },
+  propertyOwners:   { type: Array, default: () => [] },
 })
+
+// Local, mutable copies — ManagedComboBox emits update:options when an
+// entry is added/renamed/deleted so every instance on this page (parent
+// Owner Name + one per child unit) stays in sync without refetching.
+const provincesList      = ref([...props.provinces])
+const propertyOwnersList = ref([...props.propertyOwners])
 
 const page = usePage()
 const errors = computed(() => page.props.errors || {})
@@ -790,6 +840,7 @@ const form = ref({
   property_name:                props.property.property_name,
   property_code:                props.property.property_code || '',
   ownership:                    props.property.ownership,
+  owner_name:                   props.property.owner_name || '',
   country:                      props.property.country || 'Egypt',
   governorate:                  props.property.governorate || '',
   province:                     props.property.province || '',
@@ -817,6 +868,7 @@ const form = ref({
     unit_name:                    u.unit_name,
     unit_code:                    u.unit_code || '',
     ownership:                    u.ownership || '',
+    owner_name:                   u.owner_name || '',
     location:                     u.location || '',
     property_category_id:         u.property_category_id || '',
     property_type_id:             u.property_type_id || '',
@@ -895,6 +947,7 @@ const newUnit = () => ({
   unit_name:                    '',
   unit_code:                    '',
   ownership:                    '',
+  owner_name:                   '',
   location:                     '',
   property_category_id:         '',
   property_type_id:             '',

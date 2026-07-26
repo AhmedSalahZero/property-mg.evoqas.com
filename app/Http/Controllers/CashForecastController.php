@@ -156,6 +156,48 @@ class CashForecastController extends Controller
             $installments, ['unit_type', 'unit_name', 'month'], $company->id, $baseCurrency, $isFunctionalView, $fx, $unconvertedCurrencies
         );
 
+        // ── SALE RECEIVABLES (Cash In) ──────────────────────────────────
+        // Phase 2 of the Record Sale feature (confirmed July 2026) — money
+        // still owed BY a buyer after a unit/property sale on installments.
+        // Mirrors the Installment Payments query above exactly, just in
+        // reverse direction (Cash In here, vs Cash Out there) and sourced
+        // from property_sale_dues instead of property_installment_dues.
+        $saleReceivablesQuery = DB::table('property_sale_dues as psd')
+            ->join('property_sales as ps', 'psd.property_sale_id', '=', 'ps.id')
+            ->join('properties as p', 'ps.property_id', '=', 'p.id')
+            ->leftJoin('property_units as pu', 'ps.property_unit_id', '=', 'pu.id')
+            ->leftJoin('property_types as pt_unit', 'pu.property_type_id', '=', 'pt_unit.id')
+            ->leftJoin('property_types as pt_prop', 'p.property_type_id', '=', 'pt_prop.id')
+            ->where('psd.company_id', $company->id)
+            ->whereIn('psd.status', ['pending', 'overdue'])
+            ->whereBetween('psd.due_date', [$fromDate, $toDate]);
+
+        if ($singleCurrency) {
+            $saleReceivablesQuery->where('psd.currency', $singleCurrency);
+        }
+
+        $saleReceivables = $saleReceivablesQuery
+            ->select(
+                DB::raw('COALESCE(pt_unit.type_name, pt_prop.type_name, "No Type") as unit_type'),
+                DB::raw('COALESCE(pu.unit_name, p.property_name) as unit_name'),
+                DB::raw('DATE_FORMAT(psd.due_date, "%Y-%m") as month'),
+                'psd.currency',
+                DB::raw('SUM(psd.amount) as amount')
+            )
+            ->groupBy(
+                DB::raw('COALESCE(pt_unit.type_name, pt_prop.type_name, "No Type")'),
+                DB::raw('COALESCE(pu.unit_name, p.property_name)'),
+                DB::raw('DATE_FORMAT(psd.due_date, "%Y-%m")'),
+                'psd.currency'
+            )
+            ->orderBy('unit_type')
+            ->orderBy('unit_name')
+            ->get();
+
+        $saleReceivablesByTypeUnit = $this->foldCurrencyRows(
+            $saleReceivables, ['unit_type', 'unit_name', 'month'], $company->id, $baseCurrency, $isFunctionalView, $fx, $unconvertedCurrencies
+        );
+
         // ── EXPENSE PAYMENTS ──────────────────────────────────────────────
         // Fix for audit H4 — this previously only ever pulled from
         // property_expense_payments.payment_date (cash already actually
@@ -376,6 +418,7 @@ class CashForecastController extends Controller
             'availableCurrencies' => $usedCurrencies,
             'unconvertedCurrencies' => array_values(array_unique($unconvertedCurrencies)),
             'rentByTypeUnit'    => $rentByTypeUnit,
+            'saleReceivablesByTypeUnit' => $saleReceivablesByTypeUnit,
             'installByTypeUnit' => $installByTypeUnit,
             'expenseByItem'     => $expenseByItem,
             'corporateExpenseByItem' => $corporateExpenseByItem,

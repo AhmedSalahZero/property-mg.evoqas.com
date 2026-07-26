@@ -643,11 +643,9 @@ class InvestmentDecisionController extends Controller
     private function portfolioImpactSummary(Company $company, string $baseCurrency, float $dealPurchasePrice, array $baseScenario): array
     {
         $totalUnits = Property::where('company_id', $company->id)
-            ->whereNull('deleted_at')
             ->where('nature', 'unit')
             ->count()
-            + PropertyUnit::whereHas('property', fn ($q) => $q->where('company_id', $company->id)->whereNull('deleted_at'))
-                ->whereNull('deleted_at')
+            + PropertyUnit::whereHas('property', fn ($q) => $q->where('company_id', $company->id))
                 ->count();
 
         $occupiedUnits = RentContract::where('company_id', $company->id)
@@ -675,10 +673,8 @@ class InvestmentDecisionController extends Controller
         $portfolioNoiBefore = round($portfolioRevenue - $portfolioExpenses, 2);
 
         $portfolioAcquisitionCost = (float) Property::where('company_id', $company->id)
-            ->whereNull('deleted_at')
             ->sum('acquisition_cost_base_amount')
-            + (float) PropertyUnit::whereHas('property', fn ($q) => $q->where('company_id', $company->id)->whereNull('deleted_at'))
-                ->whereNull('deleted_at')
+            + (float) PropertyUnit::whereHas('property', fn ($q) => $q->where('company_id', $company->id))
                 ->sum('acquisition_cost_base_amount');
 
         $roiBefore = $portfolioAcquisitionCost > 0 ? round($portfolioNoiBefore / $portfolioAcquisitionCost * 100, 2) : null;

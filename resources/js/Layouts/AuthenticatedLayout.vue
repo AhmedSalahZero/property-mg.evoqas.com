@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { Link, usePage } from '@inertiajs/vue3'
+import axios from 'axios'
 import { useI18n } from 'vue-i18n'
 import { setLocale } from '@/i18n/index.js'
 import Dropdown from '@/Components/Dropdown.vue'
@@ -84,7 +85,24 @@ function applyTheme(dark) {
 function toggleTheme() {
     const newDark = !isDark.value
     applyTheme(newDark)
-    localStorage.setItem('fv_theme', newDark ? 'dark' : 'light')
+    const themeValue = newDark ? 'dark' : 'light'
+    localStorage.setItem('fv_theme', themeValue)
+
+    // Fix (confirmed session): this used to only write to localStorage.
+    // On mount, this file reads `user.value?.theme` FIRST, before
+    // localStorage — but nothing was ever calling the theme.toggle route
+    // that persists the choice to the user's own database record, so
+    // user.theme stayed stuck at its default of 'dark' forever. The
+    // instant the user navigated to another page (a real page load, not
+    // a client-side transition — many actions in this app use
+    // window.location.href), the stale 'dark' from the database silently
+    // won over whatever was actually just picked, reverting the theme
+    // every time. The backend route already existed and already does the
+    // right thing (auth()->user()->update(['theme' => $theme])); it just
+    // needed to actually be called. Fire-and-forget — the local UI has
+    // already updated above, this just keeps the account's stored
+    // preference in sync for the next page load.
+    axios.post(route('theme.toggle'), { theme: themeValue }).catch(() => {})
 }
 
 function toggleLocale() {
@@ -121,6 +139,18 @@ const analysisModules = computed(() => [
         route: 'company.properties.index',
         routeMatch: 'company.properties.index',
         icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/>`
+    },
+    {
+        label: 'Properties Rent Collection',
+        route: 'company.properties.rent-collections.index',
+        routeMatch: 'company.properties.rent-collections.*',
+        icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V6m0 10v2m0-12a9 9 0 100 18 9 9 0 000-18z"/>`
+    },
+    {
+        label: 'Properties Installment Payment',
+        route: 'company.properties.installment-payments.index',
+        routeMatch: 'company.properties.installment-payments.*',
+        icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 7h6m-6 4h6m-6 4h4M5 3h14a2 2 0 012 2v14a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2z"/>`
     },
     {
         label: 'Corporate Expenses',

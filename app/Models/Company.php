@@ -4,11 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Company extends Model
 {
-    use HasFactory, SoftDeletes;
+    use HasFactory;
 
     // ── Fillable ─────────────────────────────────────────────────
     protected $fillable = [
@@ -102,11 +101,6 @@ class Company extends Model
     public function tags()
     {
         return $this->hasMany(Tag::class);
-    }
-
-    public function kpiDefinitions()
-    {
-        return $this->hasMany(KpiDefinition::class);
     }
 
     // ── Module Helpers ───────────────────────────────────────────

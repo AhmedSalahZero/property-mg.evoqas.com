@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Notifications\ResetPasswordNotification;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -36,6 +37,14 @@ class User extends Authenticatable
             'is_active'         => 'boolean',
             'max_users'         => 'integer',
         ];
+    }
+
+    /**
+     * Send the password reset notification with branded email template.
+     */
+    public function sendPasswordResetNotification(#[\SensitiveParameter] $token): void
+    {
+        $this->notify(new ResetPasswordNotification($token));
     }
 
     // ── Relationships ──────────────────────────────────────────────────────────

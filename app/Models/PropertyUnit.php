@@ -3,14 +3,11 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PropertyUnit extends Model
 {
-    use SoftDeletes;
-
     protected $fillable = [
         'company_id',
         'property_id',
@@ -18,6 +15,7 @@ class PropertyUnit extends Model
         'unit_name',
         'unit_code',
         'ownership',
+        'owner_name',
         'location',
         'property_category_id',
         'property_type_id',
@@ -31,6 +29,7 @@ class PropertyUnit extends Model
         'monthly_depreciation',
         'depreciation_duration_months',
         'is_active',
+        'sold_at',
         'sort_order',
         'acquisition_cost_base_amount',
         'book_value_base_amount',
@@ -46,6 +45,7 @@ class PropertyUnit extends Model
         'monthly_depreciation'        => 'decimal:2',
         'depreciation_duration_months'=> 'integer',
         'is_active'                   => 'boolean',
+        'sold_at'                     => 'date',
         'sort_order'                  => 'integer',
         'acquisition_cost_base_amount'=> 'decimal:2',
         'book_value_base_amount'      => 'decimal:2',
@@ -86,6 +86,26 @@ class PropertyUnit extends Model
     public function rentContracts(): HasMany
     {
         return $this->hasMany(RentContract::class, 'property_unit_id');
+    }
+
+    /**
+     * Exist solely so PropertyController::destroy() can explicitly
+     * cascade-delete these when a property (and its units) is hard-deleted
+     * — see the matching note on Property::expenses().
+     */
+    public function sales(): HasMany
+    {
+        return $this->hasMany(PropertySale::class);
+    }
+
+    public function keepOrSellAnalyses(): HasMany
+    {
+        return $this->hasMany(KeepOrSellAnalysis::class);
+    }
+
+    public function corporateExpenseAllocations(): HasMany
+    {
+        return $this->hasMany(CorporateExpenseAllocation::class);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

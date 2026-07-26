@@ -122,9 +122,8 @@ class CorporateExpenseAllocationService
         }
 
         $this->propertiesCache = Property::where('company_id', $companyId)
-            ->whereNull('deleted_at')
             ->with([
-                'units' => fn ($q) => $q->whereNull('deleted_at'),
+                'units' => fn ($q) => $q,
                 'installmentPlan:id,property_id,delivery_date',
             ])
             ->get();

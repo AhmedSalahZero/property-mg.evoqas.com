@@ -111,7 +111,6 @@ class AnnualSummaryController extends Controller
                 ->leftJoin('property_types as pt', 'pt.id', '=', 'p.property_type_id')
                 ->where('p.company_id', $company->id)
                 ->where('p.nature', 'unit')
-                ->whereNull('p.deleted_at')
                 ->select(
                     'p.id',
                     'p.property_name',
@@ -126,7 +125,6 @@ class AnnualSummaryController extends Controller
                 ->join('properties as p', 'p.id', '=', 'pu.property_id')
                 ->leftJoin('property_types as pt', 'pt.id', '=', 'pu.property_type_id')
                 ->where('pu.company_id', $company->id)
-                ->whereNull('pu.deleted_at')
                 ->select(
                     'pu.id as unit_id',
                     'pu.unit_name',
@@ -198,8 +196,8 @@ class AnnualSummaryController extends Controller
             $noi            = round($totalCollected - $totalExpenses, 2);
             $totalMV        = round(array_sum($mvUnitValues) + array_sum($mvPropValues), 2);
             $totalAcq       = round(
-                DB::table('properties')->where('company_id', $company->id)->whereNull('deleted_at')->sum('acquisition_cost')
-                + DB::table('property_units')->where('company_id', $company->id)->whereNull('deleted_at')->sum('acquisition_cost'),
+                DB::table('properties')->where('company_id', $company->id)->sum('acquisition_cost')
+                + DB::table('property_units')->where('company_id', $company->id)->sum('acquisition_cost'),
                 2
             );
             $unrealizedGain = $totalMV > 0 ? round($totalMV - $totalAcq, 2) : null;

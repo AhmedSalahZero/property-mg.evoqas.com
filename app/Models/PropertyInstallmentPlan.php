@@ -173,7 +173,36 @@ class PropertyInstallmentPlan extends Model
         $fx           = app(CurrencyConversionService::class);
         $baseCurrency = $this->company?->currency ?: 'EGP';
 
-        $keepIds  = [];
+        // Fix — identical bug (and identical fix) as
+        // RentContract::reconcileCollections(): this used to build $keepIds
+        // as it went, insert every brand-new row, and only THEN delete
+        // "whereNotIn($keepIds) AND status=pending" — but a freshly-inserted
+        // row's id was never added to $keepIds (it didn't exist yet when
+        // $keepIds was built), so that final cleanup deleted every due row
+        // this same run had just inserted a moment earlier. On any plan
+        // with no pre-existing dues (every brand-new installment plan, or
+        // any plan whose dues had already been wiped by this exact bug on a
+        // previous save), the net result was always zero due rows.
+        //
+        // Fixed the same way: figure out which EXISTING rows are obsolete
+        // (still pending, and no (due_type, due_date) match in the new
+        // desired schedule) and delete only those, BEFORE anything new is
+        // inserted — so a newly-inserted row can never be mistaken for
+        // something to clean up.
+        $desiredMatchKeys = collect(array_keys($desired))
+            ->map(fn ($key) => rtrim($key, '#'))
+            ->unique();
+
+        $obsoleteIds = $existing
+            ->reject(fn ($due, $matchKey) => $desiredMatchKeys->contains($matchKey))
+            ->where('status', 'pending')
+            ->pluck('id')
+            ->all();
+
+        if (!empty($obsoleteIds)) {
+            $this->dues()->whereIn('id', $obsoleteIds)->delete();
+        }
+
         $toInsert = [];
 
         foreach ($desired as $key => $row) {
@@ -188,7 +217,6 @@ class PropertyInstallmentPlan extends Model
 
             if ($match && $match->status !== PropertyInstallmentDue::STATUS_PENDING) {
                 // Already paid, or aged into overdue — historical fact, don't touch.
-                $keepIds[] = $match->id;
                 $existing->forget($matchKey); // don't let a second desired row match the same paid row
                 continue;
             }
@@ -202,7 +230,6 @@ class PropertyInstallmentPlan extends Model
                     'fx_rate_used'  => $conversion['fx_rate_used'],
                     'sort_order'    => $order[$key],
                 ]);
-                $keepIds[] = $match->id;
                 $existing->forget($matchKey);
                 continue;
             }
@@ -230,13 +257,5 @@ class PropertyInstallmentPlan extends Model
         if (!empty($toInsert)) {
             PropertyInstallmentDue::insert($toInsert);
         }
-
-        // Remove obsolete rows — but ONLY ones still pending. Paid/overdue rows
-        // are history and must survive even if they fell outside the newly
-        // computed schedule (see "Known limitation" in the docblock above).
-        $this->dues()
-            ->whereNotIn('id', $keepIds)
-            ->where('status', 'pending')
-            ->delete();
     }
 }
