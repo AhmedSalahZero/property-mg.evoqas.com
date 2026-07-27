@@ -59,26 +59,28 @@ onMounted(() => {
 function applyTheme(dark) {
     isDark.value = dark
     const root = document.documentElement
+
+    // Top bar + sidebar stay dark in both themes
+    root.style.setProperty('--fv-nav', '#0E1E34')
+    root.style.setProperty('--fv-sidebar', '#0B1A30')
+    root.style.setProperty('--fv-chrome-border', '#1B3558')
+
     if (dark) {
         root.setAttribute('data-theme', 'dark')
-        root.style.setProperty('--fv-bg',      '#0C1829')
-        root.style.setProperty('--fv-nav',     '#0E1E34')
-        root.style.setProperty('--fv-card',    '#112240')
-        root.style.setProperty('--fv-border',  '#1B3558')
-        root.style.setProperty('--fv-text',    '#E2E8F0')
-        root.style.setProperty('--fv-muted',   '#6B96B8')
-        root.style.setProperty('--fv-input',   '#0D1E38')
-        root.style.setProperty('--fv-sidebar', '#0B1A30')
+        root.style.setProperty('--fv-bg', '#0C1829')
+        root.style.setProperty('--fv-card', '#112240')
+        root.style.setProperty('--fv-border', '#1B3558')
+        root.style.setProperty('--fv-text', '#E2E8F0')
+        root.style.setProperty('--fv-muted', '#6B96B8')
+        root.style.setProperty('--fv-input', '#0D1E38')
     } else {
         root.setAttribute('data-theme', 'light')
-        root.style.setProperty('--fv-bg',      '#F0F8FD')
-        root.style.setProperty('--fv-nav',     '#ffffff')
-        root.style.setProperty('--fv-card',    '#ffffff')
-        root.style.setProperty('--fv-border',  '#e2e8f0')
-        root.style.setProperty('--fv-text',    '#0f172a')
-        root.style.setProperty('--fv-muted',   '#64748b')
-        root.style.setProperty('--fv-input',   '#f8fafc')
-        root.style.setProperty('--fv-sidebar', '#f1f5f9')
+        root.style.setProperty('--fv-bg', '#F0F8FD')
+        root.style.setProperty('--fv-card', '#ffffff')
+        root.style.setProperty('--fv-border', '#e2e8f0')
+        root.style.setProperty('--fv-text', '#0f172a')
+        root.style.setProperty('--fv-muted', '#64748b')
+        root.style.setProperty('--fv-input', '#f8fafc')
     }
 }
 
@@ -229,7 +231,7 @@ const toolsModules = computed(() => [
                  TOP NAVIGATION BAR
             ═════════════════════════════════════════════════════════ -->
             <nav class="border-b sticky top-0 transition-colors duration-300"
-                style="z-index:10000; background-color: var(--fv-nav, #0d1426); border-color: var(--fv-border, #1B3558);">
+                style="z-index:10000; background-color: var(--fv-nav, #0E1E34); border-color: var(--fv-chrome-border, #1B3558);">
 
                 <div class="mx-auto max-w-full px-4 sm:px-6">
                     <div class="flex h-16 items-center justify-between">
@@ -263,7 +265,7 @@ const toolsModules = computed(() => [
                             </Link>
 
                             <!-- Divider -->
-                            <div class="hidden lg:block w-px h-6" style="background-color: var(--fv-border, #1B3558);"></div>
+                            <div class="hidden lg:block w-px h-6" style="background-color: var(--fv-chrome-border, #1B3558);"></div>
 
                             <!-- Desktop Nav Links -->
                             <div class="hidden lg:flex items-center gap-0.5">
@@ -372,7 +374,7 @@ const toolsModules = computed(() => [
                 </div>
 
                 <!-- Mobile Menu -->
-                <div v-show="showingMobileMenu" class="sm:hidden border-t" style="border-color: var(--fv-border, #1B3558);">
+                <div v-show="showingMobileMenu" class="sm:hidden border-t" style="border-color: var(--fv-chrome-border, #1B3558);">
                     <div class="px-4 py-3 space-y-1">
                         <Link v-if="activeCompanyId"
                             :href="route('company.properties.dashboard', activeCompanyId)"
@@ -402,11 +404,11 @@ const toolsModules = computed(() => [
                                 :href="route(m.route, activeCompanyId)"
                                 class="fv-mobile-link"
                                 :class="isModuleActive(m.routeMatch) ? 'fv-mobile-link-active' : ''">{{ m.label }}</Link>
-                            <div class="border-t my-1" style="border-color: var(--fv-border);"></div>
+                            <div class="border-t my-1" style="border-color: var(--fv-chrome-border, #1B3558);"></div>
                             <Link :href="route('company.settings.index', activeCompanyId)" class="fv-mobile-link">⚙ Settings</Link>
                         </template>
                     </div>
-                    <div class="px-4 py-3 border-t space-y-1" style="border-color: var(--fv-border, #1B3558);">
+                    <div class="px-4 py-3 border-t space-y-1" style="border-color: var(--fv-chrome-border, #1B3558);">
                         <p class="text-sm font-semibold px-3" style="color: #E2E8F0;">{{ user.name }}</p>
                         <p class="text-xs px-3 mb-2" style="color: #1490A8;">{{ user.email }}</p>
                         <Link :href="route('profile.edit')" class="fv-mobile-link">Profile</Link>
@@ -427,7 +429,7 @@ const toolsModules = computed(() => [
                 <aside v-if="hasSidebar"
                     :class="['fv-sidebar hidden lg:flex flex-col sticky top-16 h-[calc(100vh-4rem)] transition-all duration-300 ease-in-out flex-shrink-0',
                         sidebarExpanded ? 'w-56' : 'w-[60px]']"
-                    style="background-color: var(--fv-sidebar, #0B1A30); border-right: 1px solid var(--fv-border, #1B3558);">
+                    style="background-color: var(--fv-sidebar, #0B1A30); border-right: 1px solid var(--fv-chrome-border, #1B3558);">
 
                     <!-- ── ANALYSIS GROUP ──────────────────────────── -->
                     <div class="flex-1 overflow-y-auto py-4 flex flex-col gap-0.5 px-2">
@@ -437,7 +439,7 @@ const toolsModules = computed(() => [
                             style="color: #26C6DA;">
                             Properties
                         </div>
-                        <div v-else class="h-px mx-2 mb-2 mt-1" style="background: var(--fv-border);"></div>
+                        <div v-else class="h-px mx-2 mb-2 mt-1" style="background: var(--fv-chrome-border, #1B3558);"></div>
 
                         <Link v-for="mod in analysisModules" :key="mod.route"
                             :href="route(mod.route, activeCompanyId)"
@@ -449,7 +451,7 @@ const toolsModules = computed(() => [
                         </Link>
 
                         <!-- Divider -->
-                        <div class="my-3 mx-2 h-px" style="background: var(--fv-border, #1B3558);"></div>
+                        <div class="my-3 mx-2 h-px" style="background: var(--fv-chrome-border, #1B3558);"></div>
 
                         <!-- Planning Group -->
                         <div v-if="sidebarExpanded"
@@ -468,7 +470,7 @@ const toolsModules = computed(() => [
                         </Link>
 
                         <!-- Divider -->
-                        <div class="my-3 mx-2 h-px" style="background: var(--fv-border, #1B3558);"></div>
+                        <div class="my-3 mx-2 h-px" style="background: var(--fv-chrome-border, #1B3558);"></div>
 
                         <!-- Tools Group -->
                         <div v-if="sidebarExpanded"
@@ -476,7 +478,7 @@ const toolsModules = computed(() => [
                             style="color: #26C6DA;">
                             Tools
                         </div>
-                        <div v-else class="h-px mx-2 mb-2" style="background: var(--fv-border);"></div>
+                        <div v-else class="h-px mx-2 mb-2" style="background: var(--fv-chrome-border, #1B3558);"></div>
 
                         <!-- Loan Calculator -->
                         <Link
@@ -504,7 +506,7 @@ const toolsModules = computed(() => [
                     </div>
 
                     <!-- ── SETTINGS — pinned to bottom ────────────── -->
-                    <div class="py-3 px-2 border-t" style="border-color: var(--fv-border, #1B3558);">
+                    <div class="py-3 px-2 border-t" style="border-color: var(--fv-chrome-border, #1B3558);">
                         <Link
                             :href="route('company.settings.index', activeCompanyId)"
                             :title="!sidebarExpanded ? 'Settings' : ''"
@@ -626,13 +628,13 @@ const toolsModules = computed(() => [
 .fv-mobile-link:hover { color: #48C4D8; background-color: rgba(20, 144, 168,0.07); }
 .fv-mobile-link-active { color: #BA7517 !important; background-color: rgba(186, 117, 23,0.08) !important; }
 
-/* ── Icon Button ─────────────────────────────────────────────────────── */
+/* ── Icon Button (chrome — always dark) ──────────────────────────────── */
 .fv-icon-btn {
     width: 2.25rem; height: 2.25rem;
     display: flex; align-items: center; justify-content: center;
     border-radius: 0.5rem;
-    border: 1px solid var(--fv-border, #1B3558);
-    background-color: var(--fv-card, #112240);
+    border: 1px solid #1B3558;
+    background-color: #112240;
     color: #E2E8F0;
     transition: all 0.15s ease; cursor: pointer;
 }
@@ -655,12 +657,12 @@ const toolsModules = computed(() => [
     padding: 0.1rem 0.4rem; border-radius: 9999px; line-height: 1.4;
 }
 
-/* ── Language Button ─────────────────────────────────────────────────── */
+/* ── Language Button (chrome — always dark) ──────────────────────────── */
 .fv-lang-btn {
     display: flex; align-items: center; gap: 0.2rem;
     padding: 0.375rem 0.625rem; border-radius: 0.5rem;
-    border: 1px solid var(--fv-border, #1B3558);
-    background-color: var(--fv-card, #112240);
+    border: 1px solid #1B3558;
+    background-color: #112240;
     font-size: 0.7rem; font-weight: 700; letter-spacing: 0.05em;
     cursor: pointer; transition: all 0.15s ease; color: #E2E8F0;
 }
@@ -672,12 +674,12 @@ const toolsModules = computed(() => [
 /* ── Logo ────────────────────────────────────────────────────────────── */
 .fv-logo-mark { width: 2rem; height: 2rem; flex-shrink: 0; }
 
-/* ── User Button ─────────────────────────────────────────────────────── */
+/* ── User Button (chrome — always dark) ──────────────────────────────── */
 .fv-user-btn {
     display: inline-flex; align-items: center; gap: 0.5rem;
     padding: 0.375rem 0.75rem; border-radius: 0.5rem;
-    border: 1px solid var(--fv-border, #1B3558);
-    background-color: var(--fv-card, #112240);
+    border: 1px solid #1B3558;
+    background-color: #112240;
     cursor: pointer; transition: all 0.15s ease;
 }
 .fv-user-btn:hover { border-color: #48C4D8; }
@@ -689,37 +691,8 @@ const toolsModules = computed(() => [
 }
 
 /* ══════════════════════════════════════════════════════════════════════
-   LIGHT MODE OVERRIDES
+   LIGHT MODE OVERRIDES — content only (chrome stays dark)
 ══════════════════════════════════════════════════════════════════════ */
-[data-theme="light"] .fv-nav-link { color: #0C447C; }
-[data-theme="light"] .fv-nav-link:hover { color: #0C447C; background-color: rgba(20, 144, 168,0.08); }
-[data-theme="light"] .fv-nav-active { color: #0C447C !important; background-color: rgba(20, 144, 168,0.12) !important; }
-
-[data-theme="light"] .fv-sidebar-link { color: #0C447C; }
-[data-theme="light"] .fv-sidebar-link:hover { color: #0C447C; background-color: rgba(20, 144, 168,0.08); }
-[data-theme="light"] .fv-sidebar-active { color: #0C447C !important; background-color: rgba(20, 144, 168,0.10) !important; border-left: 3px solid #0C447C !important; }
-[data-theme="light"] .fv-sidebar-settings:hover { color: #BA7517 !important; background-color: rgba(186,117,23,0.08) !important; }
-[data-theme="light"] .fv-sidebar-active.fv-sidebar-settings { color: #0C447C !important; background-color: rgba(20, 144, 168,0.10) !important; border-left: 3px solid #0C447C !important; }
-
-[data-theme="light"] .fv-mobile-link { color: #0C447C; }
-[data-theme="light"] .fv-mobile-link:hover { color: #0C447C; background-color: rgba(20, 144, 168,0.08); }
-[data-theme="light"] .fv-mobile-link-active { color: #0C447C !important; background-color: rgba(20, 144, 168,0.10) !important; }
-
-[data-theme="light"] .fv-icon-btn { color: #0C447C; background-color: #ffffff; border-color: #cbd5e1; }
-[data-theme="light"] .fv-icon-btn:hover { color: #0C447C; border-color: #1490A8; }
-
-[data-theme="light"] .fv-tasks-btn { color: #0C447C; }
-[data-theme="light"] .fv-tasks-btn:hover { color: #0C447C; background-color: rgba(20, 144, 168,0.08); }
-
-[data-theme="light"] .fv-lang-btn { color: #0C447C; background-color: #ffffff; border-color: #cbd5e1; }
-[data-theme="light"] .fv-lang-btn:hover { border-color: #1490A8; color: #0C447C; }
-[data-theme="light"] .fv-lang-active   { color: #0C447C; }
-[data-theme="light"] .fv-lang-divider  { color: #94a3b8; }
-[data-theme="light"] .fv-lang-inactive { color: #64748b; }
-
-[data-theme="light"] .fv-user-btn { background-color: #ffffff; border-color: #cbd5e1; }
-[data-theme="light"] .fv-user-btn:hover { border-color: #1490A8; }
-
 [data-theme="light"] .fv-text-primary { color: #0f172a; }
 [data-theme="light"] .fv-text-muted   { color: #64748b; }
 </style>
