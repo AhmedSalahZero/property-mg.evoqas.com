@@ -101,8 +101,21 @@ class KeepOrSellController extends Controller
             ->orderByDesc('rc.id')
             ->get();
 
-        // Total contracted revenue from rent_revenues
-        $revenueByYear = DB::table('rent_revenues as rr')
+        // Total contracted revenue from rent_revenues — grouped by CALENDAR
+        // MONTH, not by year.
+        //
+        // Fix (Keep-or-Sell month-level revenue): grouping by YEAR() alone
+        // silently under-counted any year in which a contract ends mid-year
+        // (e.g. a contract ending May 2029 only ever contributed 5 months
+        // of rent to "2029"), and the compute engine had no way to tell the
+        // difference between "this year is fully contracted" and "this
+        // year is only partially contracted" — it just used whatever
+        // number showed up, causing a visible revenue *drop* in the
+        // transition year instead of a continued, growth-projected rent.
+        // Returning one row per YYYY-MM lets runComputation() fill in only
+        // the missing months of a transition period with projected rent,
+        // while keeping every actual contracted month untouched.
+        $revenueByMonth = DB::table('rent_revenues as rr')
             ->join('rent_contracts as rc', 'rc.id', '=', 'rr.rent_contract_id')
             ->where('rr.company_id', $companyId)
             ->where('rc.property_id', $propertyId)
@@ -110,24 +123,24 @@ class KeepOrSellController extends Controller
             ->when(!$unitId, fn($q) => $q->whereNull('rc.property_unit_id'))
             ->where('rc.status', 'running')
             ->select(
-                DB::raw('YEAR(rr.revenue_date) as yr'),
+                DB::raw("DATE_FORMAT(rr.revenue_date, '%Y-%m') as ym"),
                 DB::raw('SUM(rr.base_amount) as total_revenue')
             )
-            ->groupBy(DB::raw('YEAR(rr.revenue_date)'))
-            ->orderBy(DB::raw('YEAR(rr.revenue_date)'))
+            ->groupBy(DB::raw("DATE_FORMAT(rr.revenue_date, '%Y-%m')"))
+            ->orderBy(DB::raw("DATE_FORMAT(rr.revenue_date, '%Y-%m')"))
             ->get();
 
-        // Total paid expenses for this property/unit
-        $expenseByYear = DB::table('property_expense_payments as pep')
+        // Total paid expenses for this property/unit — same month-level fix.
+        $expenseByMonth = DB::table('property_expense_payments as pep')
             ->join('property_expenses as pe', 'pe.id', '=', 'pep.property_expense_id')
             ->where('pe.company_id', $companyId)
             ->where('pe.property_id', $propertyId)
             ->select(
-                DB::raw('YEAR(pep.payment_date) as yr'),
+                DB::raw("DATE_FORMAT(pep.payment_date, '%Y-%m') as ym"),
                 DB::raw('SUM(pep.base_amount) as total_expense')
             )
-            ->groupBy(DB::raw('YEAR(pep.payment_date)'))
-            ->orderBy(DB::raw('YEAR(pep.payment_date)'))
+            ->groupBy(DB::raw("DATE_FORMAT(pep.payment_date, '%Y-%m')"))
+            ->orderBy(DB::raw("DATE_FORMAT(pep.payment_date, '%Y-%m')"))
             ->get();
 
         // ── INSTALLMENT DUES — pending/overdue grouped by year ──────────
@@ -137,7 +150,7 @@ class KeepOrSellController extends Controller
 
         $ownership = $unit ? ($unit->ownership ?? '') : ($property->ownership ?? '');
 
-        $installmentByYear = [];
+        $installmentByMonth = [];
         $totalRemainingInstallments = 0;
 
         if ($ownership === 'installments') {
@@ -146,15 +159,15 @@ class KeepOrSellController extends Controller
                 ->where('property_id', $propertyId)
                 ->whereIn('status', ['pending', 'overdue'])
                 ->select(
-                    DB::raw('YEAR(due_date) as yr'),
+                    DB::raw("DATE_FORMAT(due_date, '%Y-%m') as ym"),
                     DB::raw('SUM(base_amount) as total_due')
                 )
-                ->groupBy(DB::raw('YEAR(due_date)'))
-                ->orderBy(DB::raw('YEAR(due_date)'))
+                ->groupBy(DB::raw("DATE_FORMAT(due_date, '%Y-%m')"))
+                ->orderBy(DB::raw("DATE_FORMAT(due_date, '%Y-%m')"))
                 ->get();
 
             foreach ($installmentRows as $row) {
-                $installmentByYear[] = ['yr' => $row->yr, 'total_due' => $row->total_due];
+                $installmentByMonth[] = ['ym' => $row->ym, 'total_due' => $row->total_due];
                 $totalRemainingInstallments += (float) $row->total_due;
             }
         }
@@ -168,7 +181,7 @@ class KeepOrSellController extends Controller
 
         // Fix for audit Finding 1 (Keep-or-Sell currency mismatch), refined
         // by Findings 3/4 — every other figure returned by this endpoint
-        // (revenue_by_year, expense_by_year, installment_by_year) is
+        // (revenue_by_month, expense_by_month, installment_by_month) is
         // already converted to the company's base currency via base_amount
         // (fix C4), but market_value/acquisition_cost used to be returned
         // raw in the property/unit's own currency. Since the compute()
@@ -197,8 +210,8 @@ class KeepOrSellController extends Controller
 
         return response()->json([
             // market_value / acquisition_cost are now in the company's base
-            // currency, matching revenue_by_year / expense_by_year /
-            // installment_by_year below — the compute() engine can add,
+            // currency, matching revenue_by_month / expense_by_month /
+            // installment_by_month below — the compute() engine can add,
             // subtract, and discount all of these together safely.
             'market_value'                => $marketValueConverted,
             'acquisition_cost'            => $acquisitionConverted,
@@ -211,12 +224,15 @@ class KeepOrSellController extends Controller
             'valuation_currency'          => $valuationCurrency,
             'valuation_fx_missing'        => $valuationFxMissing,
             'contracts'                   => $contracts,
-            // revenue_by_year / expense_by_year / installment_by_year ARE now
-            // converted to the company's base currency (fix C4), so the
+            // revenue_by_month / expense_by_month / installment_by_month ARE
+            // now converted to the company's base currency (fix C4), so the
             // Keep-or-Sell projection engine never silently mixes currencies.
-            'revenue_by_year'             => $revenueByYear,
-            'expense_by_year'             => $expenseByYear,
-            'installment_by_year'         => $installmentByYear,
+            // Month-level (not year-level) grouping — see fix note above
+            // runComputation() for why this matters for contracts that end
+            // mid-year.
+            'revenue_by_month'            => $revenueByMonth,
+            'expense_by_month'            => $expenseByMonth,
+            'installment_by_month'        => $installmentByMonth,
             'total_remaining_installments'=> $totalRemainingInstallments,
             'ownership'                   => $ownership,
             'property_name'               => $property->property_name ?? '',
@@ -239,6 +255,10 @@ class KeepOrSellController extends Controller
             'market_value'             => 'required|numeric|min:0',
             'selling_costs_pct'        => 'required|numeric|min:0|max:100',
             'holding_years'            => 'required|integer|min:1|max:30',
+            // Anchors Year 1 to a rolling 12-month window instead of the
+            // bare calendar year — see runComputation() for why. MM/YYYY to
+            // match every other date field in the app.
+            'evaluation_month'         => ['required', 'regex:/^(0[1-9]|1[0-2])\/\d{4}$/'],
             'rent_growth_rate_pct'     => 'required|numeric|min:0|max:100',
             'other_opex_pct'           => 'required|numeric|min:0|max:100',
             'corporate_tax_rate_pct'   => 'required|numeric|min:0|max:100',
@@ -247,11 +267,15 @@ class KeepOrSellController extends Controller
             'exit_value_method'        => 'required|in:appreciation,cap_rate,higher_of',
             'appreciation_rate_pct'    => 'required_if:exit_value_method,appreciation,higher_of|nullable|numeric|min:0|max:100',
             'exit_cap_rate_pct'        => 'required_if:exit_value_method,cap_rate,higher_of|nullable|numeric|min:0.01|max:100',
+            // Month-keyed now ('YYYY-MM' => amount), not year-keyed — see
+            // unitData() and runComputation() for why.
             'contracted_revenues'      => 'present|array',
             'contracted_expenses'      => 'present|array',
-            'installment_by_year'      => 'present|array', // [yr => amount]
+            'installment_by_month'     => 'present|array', // ['YYYY-MM' => amount]
             'last_contracted_rent'     => 'required|numeric|min:0',
         ]);
+
+        $this->assertEvaluationMonthNotInPast($data['evaluation_month']);
 
         $result = $this->runComputation($data);
 
@@ -272,6 +296,7 @@ class KeepOrSellController extends Controller
             'market_value'             => 'required|numeric|min:0',
             'selling_costs_pct'        => 'required|numeric|min:0|max:100',
             'holding_years'            => 'required|integer|min:1|max:30',
+            'evaluation_month'         => ['required', 'regex:/^(0[1-9]|1[0-2])\/\d{4}$/'],
             'rent_growth_rate_pct'     => 'required|numeric|min:0|max:100',
             'other_opex_pct'           => 'required|numeric|min:0|max:100',
             'corporate_tax_rate_pct'   => 'required|numeric|min:0|max:100',
@@ -281,10 +306,12 @@ class KeepOrSellController extends Controller
             'exit_cap_rate_pct'        => 'nullable|numeric|min:0.01|max:100',
             'contracted_revenues'      => 'present|array',
             'contracted_expenses'      => 'present|array',
-            'installment_by_year'      => 'present|array',
+            'installment_by_month'     => 'present|array',
             'last_contracted_rent'     => 'required|numeric|min:0',
             'analyst_recommendation'   => 'nullable|string',
         ]);
+
+        $this->assertEvaluationMonthNotInPast($data['evaluation_month']);
 
         $computed = $this->runComputation($data);
 
@@ -298,6 +325,7 @@ class KeepOrSellController extends Controller
             'selling_costs_pct'      => $data['selling_costs_pct'],
             'net_sale_proceeds'      => $computed['net_sale_proceeds'],
             'holding_years'          => $data['holding_years'],
+            'evaluation_month'       => $data['evaluation_month'],
             'rent_growth_rate_pct'   => $data['rent_growth_rate_pct'],
             'other_opex_pct'         => $data['other_opex_pct'],
             'corporate_tax_rate_pct' => $data['corporate_tax_rate_pct'],
@@ -397,6 +425,23 @@ class KeepOrSellController extends Controller
     }
 
     // ══════════════════════════════════════════════════════
+    // Fix (evaluation-date bug) — the date picker's own min-date
+    // restriction stops most past-date submissions at the UI, but the API
+    // endpoint must not trust the frontend alone. Any MM/YYYY earlier than
+    // the current month is rejected server-side too, since discounting
+    // cash flows that have already happened produces a meaningless NPV.
+    // ══════════════════════════════════════════════════════
+    private function assertEvaluationMonthNotInPast(string $evaluationMonth): void
+    {
+        $picked  = \Carbon\Carbon::createFromFormat('m/Y', $evaluationMonth)->startOfMonth();
+        $current = \Carbon\Carbon::now()->startOfMonth();
+
+        if ($picked->lt($current)) {
+            abort(422, 'Evaluation month cannot be in the past. Please choose ' . $current->format('m/Y') . ' or later.');
+        }
+    }
+
+    // ══════════════════════════════════════════════════════
     // PRIVATE: CORE COMPUTATION ENGINE
     // ══════════════════════════════════════════════════════
     private function runComputation(array $data): array
@@ -411,40 +456,108 @@ class KeepOrSellController extends Controller
         $exitValueMethod    = $data['exit_value_method'];                           // appreciation | cap_rate | higher_of
         $appreciationRate   = (float) ($data['appreciation_rate_pct'] ?? 0) / 100;
         $exitCapRate        = (float) ($data['exit_cap_rate_pct'] ?? 0) / 100;
-        $contractedRevenues = $data['contracted_revenues'];   // [year(int) => amount]
-        $contractedExpenses = $data['contracted_expenses'];   // [year(int) => amount]
-        $installmentByYear  = $data['installment_by_year'];   // [year(int) => amount]  ← NEW
-        $lastContractedRent = (float) $data['last_contracted_rent'];
+        $contractedRevenues = $data['contracted_revenues'];   // ['YYYY-MM' => amount]
+        $contractedExpenses = $data['contracted_expenses'];   // ['YYYY-MM' => amount]
+        $installmentByMonth = $data['installment_by_month'];  // ['YYYY-MM' => amount]
+        $lastContractedRent = (float) $data['last_contracted_rent']; // fallback ONLY — see below
 
         // ── Sell scenario ────────────────────────────────────
         $netSaleProceeds = $marketValue * (1 - $sellingCostsPct);
 
-        // ── Build year-by-year cash flows ───────────────────
-        $currentYear    = (int) date('Y');
-        $annualCFs      = [];
-        $lastRentAnnual = $lastContractedRent * 12;
+        // ── Build rolling 12-month cash flow periods ─────────
+        //
+        // Fix 1 (contract-transition bug): a contract ending mid-year (e.g.
+        // May 2029) used to leave the rest of that calendar year (Jun–Dec)
+        // completely blank, because the engine only checked "does this
+        // YEAR have contracted revenue at all" — it found some (Jan–May)
+        // and never noticed 7 months were still missing. Now every period
+        // is built MONTH BY MONTH: a month with real contracted revenue
+        // uses that figure untouched; a month with no contract coverage is
+        // filled with the last known contracted monthly rent, grown by the
+        // post-contract growth rate. So a transition year gets a complete,
+        // realistic 12 months instead of a partial total that looks like a
+        // revenue drop.
+        //
+        // Fix 2 (evaluation-date bug): "Year 1" used to always mean
+        // "Jan–Dec of whatever calendar year the analysis happens to run
+        // in" — so evaluating in July vs. December of the same year
+        // produced an identical Year 1, even though most of that year's
+        // cash flow is already gone by December. Year 1 now starts on the
+        // user-chosen evaluation month and runs a genuine rolling 12
+        // months forward (e.g. Jul-2026 till Jun-2027), so every period is
+        // always a true, full 12-month window — the discounting math
+        // (1+r)^y stays exactly as clean as before, just correctly anchored.
+        $evalDate = \Carbon\Carbon::createFromFormat('m/Y', $data['evaluation_month'])->startOfMonth();
+
+        // Pivot point for post-contract growth: the last calendar month
+        // that actually has real contracted revenue on file. Months after
+        // this point step the last contracted MONTHLY rent forward by
+        // (1 + growth)^yearsAhead, same compounding philosophy as before,
+        // just applied per month instead of per calendar year.
+        $lastContractedMonth = !empty($contractedRevenues)
+            ? \Carbon\Carbon::createFromFormat('Y-m', max(array_keys($contractedRevenues)))->startOfMonth()
+            : null;
+
+        // Fix (post-contract growth base) — growth used to compound on top
+        // of the contract's ORIGINAL day-1 rent (last_contracted_rent, as
+        // sent by the frontend from contracts[0].monthly_rent_amount),
+        // ignoring any annual increases the contract itself applied over
+        // its life. A contract that escalated from 20,000 to 26,000/month
+        // by its final year should have post-contract growth compound from
+        // 26,000 — the real last month's rent — not from 20,000. That real
+        // figure is already sitting in $contractedRevenues for the last
+        // contracted month, so it's used here instead. last_contracted_rent
+        // now only serves as a fallback for a unit with NO contract history
+        // at all (nothing to read a "last month" from).
+        $lastContractedMonthlyRent = $lastContractedMonth !== null
+            ? (float) $contractedRevenues[$lastContractedMonth->format('Y-m')]
+            : $lastContractedRent;
+
+        $annualCFs = [];
 
         for ($y = 1; $y <= $holdingYears; $y++) {
-            $calYear = $currentYear + $y - 1;
+            $periodStart = $evalDate->copy()->addYears($y - 1);
+            $periodEnd   = $periodStart->copy()->addYear()->subDay(); // last day of the 12th month
 
-            // Revenue: use contracted if available, else grow from last contracted
-            if (isset($contractedRevenues[$calYear]) && $contractedRevenues[$calYear] > 0) {
-                $grossRevenue = (float) $contractedRevenues[$calYear];
-            } else {
-                $lastContractedYear = !empty($contractedRevenues) ? max(array_keys($contractedRevenues)) : ($currentYear - 1);
-                $yearsAhead         = max(1, $calYear - $lastContractedYear);
-                $grossRevenue       = $lastRentAnnual * pow(1 + $rentGrowthPct, $yearsAhead);
+            $grossRevenue    = 0.0;
+            $contractedCount = 0; // how many of the 12 months were REAL contracted data
+
+            $cursor = $periodStart->copy();
+            for ($m = 0; $m < 12; $m++) {
+                $key = $cursor->format('Y-m');
+
+                if (isset($contractedRevenues[$key]) && $contractedRevenues[$key] > 0) {
+                    // Real month — use exactly what's on file, untouched.
+                    $grossRevenue += (float) $contractedRevenues[$key];
+                    $contractedCount++;
+                } else {
+                    // Missing month — project forward from the last contracted rent.
+                    if ($lastContractedMonth !== null) {
+                        $monthsAhead = max(1, $lastContractedMonth->diffInMonths($cursor, false));
+                    } else {
+                        // No contract on file at all — project from the evaluation date itself.
+                        $monthsAhead = max(1, $evalDate->diffInMonths($cursor, false) + 1);
+                    }
+                    $yearsAhead    = max(1, (int) ceil($monthsAhead / 12));
+                    $grossRevenue += $lastContractedMonthlyRent * pow(1 + $rentGrowthPct, $yearsAhead);
+                }
+
+                $cursor->addMonth();
             }
 
-            // Direct property expenses (from property_expense_payments)
-            $directExpenses = (float) ($contractedExpenses[$calYear] ?? 0);
+            // Direct expenses + installment dues summed across the same 12 months.
+            $directExpenses     = 0.0;
+            $installmentPayment = 0.0;
+            $cursor = $periodStart->copy();
+            for ($m = 0; $m < 12; $m++) {
+                $key = $cursor->format('Y-m');
+                $directExpenses     += (float) ($contractedExpenses[$key] ?? 0);
+                $installmentPayment += (float) ($installmentByMonth[$key] ?? 0);
+                $cursor->addMonth();
+            }
 
             // Other opex as % of gross revenue
             $otherOpex = $grossRevenue * $otherOpexPct;
-
-            // ── Installment payments due this year ──────────
-            // These are real cash outflows — the owner is still paying for the asset
-            $installmentPayment = (float) ($installmentByYear[$calYear] ?? 0);
 
             // Net income before tax
             // Note: installments are capital payments (not opex), so tax is on revenue minus opex only
@@ -456,15 +569,31 @@ class KeepOrSellController extends Controller
             // True net cash flow = operating income after tax minus capital installment outflow
             $netCF = $netBeforeTax - $corporateTax - $installmentPayment;
 
+            // Contracted / Partial / Projected — "Partial" is new and exists
+            // specifically so a transition year is visibly flagged instead
+            // of silently blended into "Contracted" or "Projected".
+            if ($contractedCount === 12) {
+                $source = 'contracted';
+            } elseif ($contractedCount > 0) {
+                $source = 'partial';
+            } else {
+                $source = 'projected';
+            }
+
             $annualCFs[] = [
                 'year'                => $y,
-                'cal_year'            => $calYear,
-                'is_contracted'       => isset($contractedRevenues[$calYear]) && $contractedRevenues[$calYear] > 0,
+                // Human-readable rolling period, e.g. "Jul-2026 Till Jun-2027"
+                'period_label'        => $periodStart->format('M-Y') . ' Till ' . $periodEnd->format('M-Y'),
+                'period_start'        => $periodStart->format('Y-m-d'),
+                'period_end'          => $periodEnd->format('Y-m-d'),
+                'is_contracted'       => $source === 'contracted',
+                'source'              => $source,             // contracted | partial | projected
+                'contracted_months'   => $contractedCount,     // 0–12, for transparency in the UI
                 'gross_revenue'       => round($grossRevenue, 2),
                 'direct_expenses'     => round($directExpenses, 2),
                 'other_opex'          => round($otherOpex, 2),
                 'corporate_tax'       => round($corporateTax, 2),
-                'installment_payment' => round($installmentPayment, 2),   // ← NEW column
+                'installment_payment' => round($installmentPayment, 2),
                 'net_cf'              => round($netCF, 2),
             ];
         }
@@ -621,6 +750,7 @@ class KeepOrSellController extends Controller
             'selling_costs_pct'      => $a->selling_costs_pct,
             'net_sale_proceeds'      => $a->net_sale_proceeds,
             'holding_years'          => $a->holding_years,
+            'evaluation_month'       => $a->evaluation_month,
             'rent_growth_rate_pct'   => $a->rent_growth_rate_pct,
             'other_opex_pct'         => $a->other_opex_pct,
             'corporate_tax_rate_pct' => $a->corporate_tax_rate_pct,

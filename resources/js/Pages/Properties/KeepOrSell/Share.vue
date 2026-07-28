@@ -69,6 +69,7 @@
         <p style="font-size:12px;font-weight:600;color:#64748b;letter-spacing:.5px;text-transform:uppercase;margin:0 0 14px;">Analysis Assumptions</p>
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;font-size:13px;">
           <div><span style="color:#64748b;">Holding Period</span><br><strong>{{ analysis.holding_years }} years</strong></div>
+          <div><span style="color:#64748b;">Evaluation Date</span><br><strong>{{ analysis.evaluation_month || '—' }}</strong></div>
           <div><span style="color:#64748b;">Discount Rate (WACC)</span><br><strong>{{ analysis.discount_rate_pct }}%</strong></div>
           <div><span style="color:#64748b;">Rent Growth (post-contract)</span><br><strong>{{ analysis.rent_growth_rate_pct }}%</strong></div>
           <div><span style="color:#64748b;">Other OpEx</span><br><strong>{{ analysis.other_opex_pct }}% of revenue</strong></div>
@@ -99,7 +100,7 @@
           <thead>
             <tr style="background:rgba(255,255,255,0.04);">
               <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:11px;">Year</th>
-              <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:11px;">Cal. Year</th>
+              <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:11px;">Period</th>
               <th style="padding:8px 10px;text-align:left;color:#64748b;font-size:11px;">Source</th>
               <th style="padding:8px 10px;text-align:right;color:#64748b;font-size:11px;">Gross Revenue</th>
               <th style="padding:8px 10px;text-align:right;color:#64748b;font-size:11px;">Expenses</th>
@@ -112,10 +113,10 @@
           <tbody>
             <tr v-for="row in analysis.annual_cashflows" :key="row.year" style="border-top:1px solid rgba(255,255,255,0.06);">
               <td style="padding:8px 10px;font-weight:700;">Y{{ row.year }}</td>
-              <td style="padding:8px 10px;color:#64748b;">{{ row.cal_year }}</td>
+              <td style="padding:8px 10px;color:#64748b;white-space:nowrap;">{{ row.period_label }}</td>
               <td style="padding:8px 10px;">
-                <span :style="{color: row.is_contracted ? '#4ade80' : '#fbbf24', fontSize:'11px'}">
-                  {{ row.is_contracted ? '✓ Contracted' : '~ Projected' }}
+                <span :style="{color: row.source === 'contracted' ? '#4ade80' : (row.source === 'partial' ? '#38bdf8' : '#fbbf24'), fontSize:'11px'}">
+                  {{ row.source === 'contracted' ? '✓ Contracted' : (row.source === 'partial' ? `~ Partial (${row.contracted_months}/12)` : '~ Projected') }}
                 </span>
               </td>
               <td style="padding:8px 10px;text-align:right;">{{ fmt(row.gross_revenue) }}</td>

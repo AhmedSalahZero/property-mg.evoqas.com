@@ -98,28 +98,46 @@ class ExpensePaymentScheduleService
     }
 
     /**
-     * Built-in payment terms — days added to the expense's own expense_date.
-     * 'cash' means due immediately (0 days, i.e. the expense_date itself).
+     * Built-in payment terms — counted forward from the expense's own
+     * expense_date.
+     *
+     * Fix: "Net 30" in standard business usage means "due in 1 calendar
+     * month" (e.g. an expense dated Jan 31 is due Feb 28, not Mar 2) — not
+     * literally 30 days later. Same for Net 60/90/120/150/180, which are
+     * all clean month multiples (2/3/4/5/6 months). Net 45 and Net 75 have
+     * no clean calendar-month equivalent ("a month and a half" isn't a
+     * real unit), so those two stay literal-day terms, exactly as before.
+     * 'cash' means due immediately — 0 days, i.e. the expense_date itself.
      */
     public function dateForTerm(string $term, Carbon $anchorDate): Carbon
     {
-        $termDays = [
-            'cash'    => 0,
-            'net_30'  => 30,
-            'net_45'  => 45,
-            'net_60'  => 60,
-            'net_75'  => 75,
-            'net_90'  => 90,
-            'net_120' => 120,
-            'net_150' => 150,
-            'net_180' => 180,
+        $termMonths = [
+            'net_30'  => 1,
+            'net_60'  => 2,
+            'net_90'  => 3,
+            'net_120' => 4,
+            'net_150' => 5,
+            'net_180' => 6,
         ];
 
-        if (!array_key_exists($term, $termDays)) {
-            throw new InvalidArgumentException("Unknown payment term: {$term}");
+        $termDays = [
+            'cash'   => 0,
+            'net_45' => 45,
+            'net_75' => 75,
+        ];
+
+        if (array_key_exists($term, $termMonths)) {
+            // addMonthsNoOverflow clamps to the last day of the target
+            // month instead of rolling into the next one (e.g. Jan 31 + 1
+            // month = Feb 28, not Mar 3).
+            return $anchorDate->copy()->addMonthsNoOverflow($termMonths[$term]);
         }
 
-        return $anchorDate->copy()->addDays($termDays[$term]);
+        if (array_key_exists($term, $termDays)) {
+            return $anchorDate->copy()->addDays($termDays[$term]);
+        }
+
+        throw new InvalidArgumentException("Unknown payment term: {$term}");
     }
 
     /**

@@ -17,6 +17,7 @@ class KeepOrSellAnalysis extends Model
         'selling_costs_pct',
         'net_sale_proceeds',
         'holding_years',
+        'evaluation_month',
         'rent_growth_rate_pct',
         'other_opex_pct',
         'corporate_tax_rate_pct',

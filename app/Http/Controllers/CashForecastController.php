@@ -214,6 +214,20 @@ class CashForecastController extends Controller
         //     history that hasn't happened yet.
         $currentMonthEnd = Carbon::now()->endOfMonth();
 
+        // Fix — every date-window check below compares a plain 'Y-m-d'
+        // STRING (forecasted_date / expense_date) against $fromDate/$toDate.
+        // Those two were Carbon OBJECTS, not strings — PHP's `<`/`>` on a
+        // string vs. an object falls back to string comparison, silently
+        // casting the Carbon object via __toString() which includes a time
+        // component ("2026-07-01 00:00:00"). A plain date string that's an
+        // exact prefix of that ("2026-07-01") then compares as "less than"
+        // it, even though they're the same date — so any expense whose
+        // date landed exactly on the 1st of the report's starting month
+        // was wrongly excluded. Normalizing both sides to plain date
+        // strings up front removes the object/string mismatch entirely.
+        $fromStr = $fromDate->toDateString();
+        $toStr   = $toDate->toDateString();
+
         $expensePaymentsQuery = DB::table('property_expense_payments as pep')
             ->join('property_expenses as pe', 'pep.property_expense_id', '=', 'pe.id')
             ->join('expense_items as ei', 'pe.expense_item_id', '=', 'ei.id')
@@ -263,7 +277,7 @@ class CashForecastController extends Controller
         foreach ($notFullyPaidExpenses as $expense) {
             if ($expense->paymentSchedule->isNotEmpty()) {
                 foreach ($scheduleService->outstandingRows($expense) as $row) {
-                    if ($row['forecasted_date'] < $fromDate || $row['forecasted_date'] > $toDate) {
+                    if ($row['forecasted_date'] < $fromStr || $row['forecasted_date'] > $toStr) {
                         continue; // stay inside the requested window, same as every other query on this page
                     }
                     $forecastRows->push((object) [
@@ -279,8 +293,7 @@ class CashForecastController extends Controller
             $expDate = $expense->expense_date;
             if (!$expDate) continue;
             $expDateStr = $expDate->toDateString();
-            if ($expDateStr < $fromDate || $expDateStr > $toDate) continue;
-            if (!$expDate->gt($currentMonthEnd)) continue;
+            if ($expDateStr < $fromStr || $expDateStr > $toStr) continue;
 
             $outstanding = max(0, (float) $expense->expense_amount - $expense->totalPaid());
             if ($outstanding <= 0) continue;
@@ -345,7 +358,7 @@ class CashForecastController extends Controller
         foreach ($corpNotFullyPaidExpenses as $expense) {
             if ($expense->paymentSchedule->isNotEmpty()) {
                 foreach ($scheduleService->outstandingRows($expense) as $row) {
-                    if ($row['forecasted_date'] < $fromDate || $row['forecasted_date'] > $toDate) {
+                    if ($row['forecasted_date'] < $fromStr || $row['forecasted_date'] > $toStr) {
                         continue;
                     }
                     $corpForecastRows->push((object) [
@@ -361,8 +374,7 @@ class CashForecastController extends Controller
             $expDate = $expense->expense_date;
             if (!$expDate) continue;
             $expDateStr = $expDate->toDateString();
-            if ($expDateStr < $fromDate || $expDateStr > $toDate) continue;
-            if (!$expDate->gt($currentMonthEnd)) continue;
+            if ($expDateStr < $fromStr || $expDateStr > $toStr) continue;
 
             $outstanding = max(0, (float) $expense->expense_amount - $expense->totalPaid());
             if ($outstanding <= 0) continue;

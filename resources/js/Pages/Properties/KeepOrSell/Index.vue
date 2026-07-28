@@ -263,6 +263,13 @@
                     <input class="fv-input inp" type="number" v-model="form.holding_years" min="1" max="30" />
                   </div>
                   <div>
+                    <label class="inp-label">Evaluation Date</label>
+                    <MonthYearPicker v-model="form.evaluation_month" :min-value="minEvaluationMonth" />
+                    <p style="color:var(--fv-text-muted); font-size:11px; margin:4px 0 0;">
+                      Year 1 runs {{ evaluationPeriodPreview }} — cannot be a past month.
+                    </p>
+                  </div>
+                  <div>
                     <label class="inp-label">Rent Growth Rate % (post-contract)</label>
                     <input class="fv-input inp" type="number" v-model="form.rent_growth_rate_pct" placeholder="e.g. 5" min="0" max="100" />
                   </div>
@@ -425,7 +432,7 @@
                       <thead>
                         <tr style="background:var(--fv-bg-header);">
                           <th class="th">Year</th>
-                          <th class="th">Cal. Year</th>
+                          <th class="th">Period</th>
                           <th class="th">Source</th>
                           <th class="th" style="text-align:right;">Gross Revenue</th>
                           <th class="th" style="text-align:right;">Direct Expenses</th>
@@ -441,13 +448,14 @@
                           onmouseover="this.style.background='var(--fv-bg-hover)'"
                           onmouseout="this.style.background=''">
                           <td class="td" style="font-weight:700; color:var(--fv-text-primary);">Y{{ row.year }}</td>
-                          <td class="td" style="color:var(--fv-text-muted);">{{ row.cal_year }}</td>
+                          <td class="td" style="color:var(--fv-text-muted); white-space:nowrap;">{{ row.period_label }}</td>
                           <td class="td">
                             <span style="font-size:11px; font-weight:600; padding:2px 7px; border-radius:5px;"
-                              :style="row.is_contracted
-                                ? 'background:rgba(34,197,94,0.1); color:#22c55e; border:1px solid rgba(34,197,94,0.2);'
-                                : 'background:var(--fv-gold-dim); color:var(--fv-gold); border:1px solid var(--fv-gold-border);'">
-                              {{ row.is_contracted ? 'Contracted' : 'Projected' }}
+                              :style="sourceBadgeStyle(row.source)">
+                              {{ sourceBadgeLabel(row.source) }}
+                            </span>
+                            <span v-if="row.source === 'partial'" style="display:block; font-size:10px; color:var(--fv-text-muted); margin-top:2px;">
+                              {{ row.contracted_months }}/12 months actual
                             </span>
                           </td>
                           <td class="td" style="text-align:right; color:var(--fv-text-primary);">{{ fmt(row.gross_revenue) }}</td>
@@ -544,10 +552,156 @@
 </template>
 
 <script setup>
-import { ref, computed, nextTick } from 'vue'
+import { ref, computed, nextTick, h, Teleport } from 'vue'
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue'
 import { router } from '@inertiajs/vue3'
 import axios from 'axios'
+
+// ── MonthYearPicker — same pattern as Installments/Index.vue / InstallmentModal.vue —
+// defineComponent + setup() + render() + h(), NO template string. Vite's
+// production build only ships the runtime-only Vue build (no template
+// compiler), so a component using `template: '...'` fails to render at
+// all — silently, with no visible error on screen, just an empty gap
+// where the picker should be. (Fix note: an earlier version of this file
+// copied the template-string variant from Edit.vue, which turns out to be
+// an outdated copy in this codebase — this render()+h() version is the
+// one that actually works under Vite and is used successfully in
+// Installments/Index.vue, InstallmentModal.vue, and
+// InvestmentDecision/Workspace.vue.)
+//
+// Addition over the base pattern: a `minValue` prop (MM/YYYY) that greys
+// out and blocks selecting any month before it — used here so the
+// Keep-or-Sell evaluation date can never be set in the past.
+const MonthYearPicker = {
+  props: {
+    modelValue: { type: String, default: '' },
+    minValue:   { type: String, default: '' },
+  },
+  emits: ['update:modelValue'],
+  setup(props, { emit }) {
+    const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const open     = ref(false)
+    const viewYear = ref(new Date().getFullYear())
+    const popTop   = ref(0)
+    const popLeft  = ref(0)
+
+    const display = computed(() => {
+      if (!props.modelValue) return ''
+      const [m, y] = props.modelValue.split('/')
+      if (!m || !y) return props.modelValue
+      return `${MONTHS[parseInt(m) - 1]} ${y}`
+    })
+
+    const minYear  = computed(() => props.minValue ? parseInt(props.minValue.split('/')[1]) : null)
+    const minMonth = computed(() => props.minValue ? parseInt(props.minValue.split('/')[0]) - 1 : null)
+
+    function isDisabled(idx) {
+      if (minYear.value === null) return false
+      if (viewYear.value < minYear.value) return true
+      if (viewYear.value === minYear.value && idx < minMonth.value) return true
+      return false
+    }
+
+    function toggle(e) {
+      if (open.value) { open.value = false; return }
+      const rect = e.currentTarget.getBoundingClientRect()
+      const popH = 192
+      popTop.value  = rect.bottom + popH > window.innerHeight ? rect.top - popH - 4 : rect.bottom + 4
+      popLeft.value = rect.left
+      viewYear.value = props.modelValue
+        ? parseInt(props.modelValue.split('/')[1]) || new Date().getFullYear()
+        : (minYear.value ?? new Date().getFullYear())
+      open.value = true
+      setTimeout(() => {
+        const handler = () => { open.value = false; document.removeEventListener('click', handler) }
+        document.addEventListener('click', handler)
+      }, 0)
+    }
+    function prevYear() {
+      if (minYear.value !== null && viewYear.value <= minYear.value) return // can't go earlier than the floor year
+      viewYear.value--
+    }
+    function nextYear() { viewYear.value++ }
+    function pick(idx) {
+      if (isDisabled(idx)) return
+      emit('update:modelValue', `${String(idx + 1).padStart(2, '0')}/${viewYear.value}`)
+      open.value = false
+    }
+    function clear() { emit('update:modelValue', ''); open.value = false }
+    function isActive(idx) {
+      if (!props.modelValue) return false
+      const [m, y] = props.modelValue.split('/')
+      return parseInt(m) - 1 === idx && parseInt(y) === viewYear.value
+    }
+
+    return { open, viewYear, popTop, popLeft, display, toggle, prevYear, nextYear, pick, clear, isActive, isDisabled, minYear, MONTHS }
+  },
+  render() {
+    const { open, viewYear, popTop, popLeft, display, toggle, prevYear, nextYear, pick, clear, isActive, isDisabled, minYear, MONTHS } = this
+
+    const trigger = h('div', {
+      class: 'fv-input flex items-center justify-between rounded-lg px-3 py-2 cursor-pointer text-sm',
+      onClick: toggle,
+    }, [
+      h('span', {
+        style: display ? 'color:var(--fv-text-primary)' : 'color:var(--fv-text-muted)',
+      }, display || 'MM/YYYY'),
+      h('svg', {
+        class: 'w-3.5 h-3.5 ml-2 flex-shrink-0',
+        style: 'color:var(--fv-text-muted)',
+        fill: 'none', stroke: 'currentColor', viewBox: '0 0 24 24',
+      }, [
+        h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'stroke-width': '2',
+          d: 'M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z' })
+      ]),
+    ])
+
+    const atFloorYear = minYear !== null && viewYear <= minYear
+
+    const popup = open ? h(Teleport, { to: 'body' }, [
+      h('div', {
+        onClick: (e) => e.stopPropagation(),
+        style: `position:fixed;z-index:9999;width:224px;top:${popTop}px;left:${popLeft}px;` +
+          'background:var(--fv-bg-modal,#0E1E34);border:1px solid var(--fv-border,#21518B);' +
+          'border-radius:0.5rem;padding:0.75rem;box-shadow:0 8px 40px rgba(0,0,0,0.7);',
+      }, [
+        // Year navigation
+        h('div', { style: 'display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5rem;' }, [
+          h('button', {
+            onClick: (e) => { e.stopPropagation(); prevYear() },
+            style: 'width:1.875rem;height:1.875rem;display:flex;align-items:center;justify-content:center;border-radius:0.45rem;' +
+              (atFloorYear ? 'color:var(--fv-border,#21518B);cursor:not-allowed;' : 'color:var(--fv-text-muted);cursor:pointer;') +
+              'background:transparent;border:1px solid transparent;font-size:1rem;',
+          }, '‹'),
+          h('span', { style: 'font-size:0.875rem;font-weight:600;color:var(--fv-text-primary);' }, viewYear),
+          h('button', {
+            onClick: (e) => { e.stopPropagation(); nextYear() },
+            style: 'width:1.875rem;height:1.875rem;display:flex;align-items:center;justify-content:center;border-radius:0.45rem;color:var(--fv-text-muted);background:transparent;border:1px solid transparent;cursor:pointer;font-size:1rem;',
+          }, '›'),
+        ]),
+        // Month grid — disabled (past) months are greyed out and unclickable
+        h('div', { style: 'display:grid;grid-template-columns:repeat(3,1fr);gap:0.25rem;' },
+          MONTHS.map((m, i) => h('button', {
+            key: i,
+            onClick: (e) => { e.stopPropagation(); pick(i) },
+            style: isDisabled(i)
+              ? 'padding:0.25rem;border-radius:0.35rem;font-size:0.75rem;font-weight:500;border:none;cursor:not-allowed;background:transparent;color:var(--fv-border,#21518B);opacity:0.5;'
+              : (isActive(i)
+                  ? 'padding:0.25rem;border-radius:0.35rem;font-size:0.75rem;font-weight:500;border:none;cursor:pointer;background:var(--fv-blue);color:#fff;'
+                  : 'padding:0.25rem;border-radius:0.35rem;font-size:0.75rem;font-weight:500;border:none;cursor:pointer;background:transparent;color:var(--fv-text-primary);'),
+          }, m))
+        ),
+        // Clear button
+        h('button', {
+          onClick: (e) => { e.stopPropagation(); clear() },
+          style: 'margin-top:0.5rem;width:100%;font-size:0.75rem;color:var(--fv-text-muted);background:transparent;border:none;cursor:pointer;text-align:center;',
+        }, 'Clear'),
+      ])
+    ]) : null
+
+    return h('div', {}, [trigger, popup])
+  },
+}
 
 const props = defineProps({
   companyId:  { type: Number, required: true },
@@ -574,6 +728,22 @@ const badgeStyle = (r) => {
   return s[r] ?? ''
 }
 
+// ── Cash flow row source badge (Contracted / Partial / Projected) ─────
+// "Partial" is the new state added by the contract-transition fix — a
+// period where some months came from a real contract and the rest were
+// filled in with projected rent (e.g. a contract ending mid-period).
+const sourceBadgeStyle = (source) => ({
+  contracted: 'background:rgba(34,197,94,0.1); color:#22c55e; border:1px solid rgba(34,197,94,0.2);',
+  partial:    'background:rgba(20,144,168,0.12); color:#38bdf8; border:1px solid rgba(20,144,168,0.3);',
+  projected:  'background:var(--fv-gold-dim); color:var(--fv-gold); border:1px solid var(--fv-gold-border);',
+}[source] ?? '')
+
+const sourceBadgeLabel = (source) => ({
+  contracted: 'Contracted',
+  partial:    'Partial',
+  projected:  'Projected',
+}[source] ?? 'Projected')
+
 // ── Exit method options ──────────────────────────────────
 const exitMethodOptions = [
   {
@@ -596,6 +766,13 @@ const exitMethodOptions = [
 // ── State ────────────────────────────────────────────────
 const panel = ref({ open: false, snapshotId: null })
 
+// MM/YYYY for the current month — used as the default evaluation date and
+// as the floor the date picker will not let the user go below.
+function currentMonthYYYY() {
+  const now = new Date()
+  return String(now.getMonth() + 1).padStart(2, '0') + '/' + now.getFullYear()
+}
+
 const defaultForm = () => ({
   property_id:            '',
   property_unit_id:       '',
@@ -603,6 +780,7 @@ const defaultForm = () => ({
   market_value:           '',
   selling_costs_pct:      3,
   holding_years:          5,
+  evaluation_month:       currentMonthYYYY(),
   rent_growth_rate_pct:   5,
   other_opex_pct:         10,
   corporate_tax_rate_pct: 22.5,
@@ -623,6 +801,24 @@ const chartCanvas = ref(null)
 let   chartInstance = null
 
 const shareModal = ref({ open: false, url: '', copied: false })
+
+// Floor for the evaluation date picker — today's month, never earlier.
+const minEvaluationMonth = computed(() => currentMonthYYYY())
+
+const MONTH_ABBR = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+// Live preview of what "Year 1" will actually cover, shown under the
+// picker so the rolling-12-month behavior is never a surprise.
+const evaluationPeriodPreview = computed(() => {
+  const v = form.value.evaluation_month
+  if (!v || !/^\d{2}\/\d{4}$/.test(v)) return '—'
+  const [mm, yyyy] = v.split('/').map(Number)
+  const start = new Date(yyyy, mm - 1, 1)
+  const end   = new Date(yyyy, mm - 1, 1)
+  end.setFullYear(end.getFullYear() + 1)
+  end.setMonth(end.getMonth() - 1)
+  return `${MONTH_ABBR[start.getMonth()]}-${start.getFullYear()} Till ${MONTH_ABBR[end.getMonth()]}-${end.getFullYear()}`
+})
 
 // ── Property / Unit selectors ────────────────────────────
 const selectedProperty = computed(() =>
@@ -662,48 +858,10 @@ async function calculate() {
   computing.value = true
   result.value    = null
 
-  const contractedRevenuesObj = {}
-  const contractedExpensesObj = {}
-  const installmentByYearObj  = {}
-  let lastContractedRent      = 0
-
-  if (unitInfo.value.revenue_by_year) {
-    unitInfo.value.revenue_by_year.forEach(r => { contractedRevenuesObj[r.yr] = r.total_revenue })
-  }
-  if (unitInfo.value.expense_by_year) {
-    unitInfo.value.expense_by_year.forEach(r => { contractedExpensesObj[r.yr] = r.total_expense })
-  }
-  if (unitInfo.value.installment_by_year) {
-    unitInfo.value.installment_by_year.forEach(r => { installmentByYearObj[r.yr] = r.total_due })
-  }
-  if (unitInfo.value.contracts && unitInfo.value.contracts.length) {
-    const c = unitInfo.value.contracts[0]
-    lastContractedRent = parseFloat(c.min_monthly_rent || c.monthly_rent_amount || 0)
-  }
-
-  const contractedRevenues = Object.keys(contractedRevenuesObj).length ? contractedRevenuesObj : []
-  const contractedExpenses = Object.keys(contractedExpensesObj).length ? contractedExpensesObj : []
-  const installmentByYear  = Object.keys(installmentByYearObj).length  ? installmentByYearObj  : []
+  const payload = buildComputePayload()
 
   try {
-    const { data } = await axios.post(route('company.properties.keep-or-sell.compute', { company: props.companyId }), {
-      property_id:            form.value.property_id,
-      property_unit_id:       form.value.property_unit_id || null,
-      market_value:           parseFloat(form.value.market_value),
-      selling_costs_pct:      parseFloat(form.value.selling_costs_pct),
-      holding_years:          parseInt(form.value.holding_years),
-      rent_growth_rate_pct:   parseFloat(form.value.rent_growth_rate_pct),
-      other_opex_pct:         parseFloat(form.value.other_opex_pct),
-      corporate_tax_rate_pct: parseFloat(form.value.corporate_tax_rate_pct),
-      discount_rate_pct:      parseFloat(form.value.discount_rate_pct),
-      exit_value_method:      form.value.exit_value_method,
-      appreciation_rate_pct:  parseFloat(form.value.appreciation_rate_pct || 0),
-      exit_cap_rate_pct:      parseFloat(form.value.exit_cap_rate_pct || 0),
-      contracted_revenues:    contractedRevenues,
-      contracted_expenses:    contractedExpenses,
-      installment_by_year:    installmentByYear,
-      last_contracted_rent:   lastContractedRent,
-    })
+    const { data } = await axios.post(route('company.properties.keep-or-sell.compute', { company: props.companyId }), payload)
     result.value = data
     await nextTick()
     renderChart(data)
@@ -716,6 +874,58 @@ async function calculate() {
   }
 
   computing.value = false
+}
+
+// ── Shared payload builder — used by both calculate() and saveSnapshot()
+//    so the two never drift apart on how month-keyed data is assembled.
+function buildComputePayload() {
+  const contractedRevenuesObj = {}
+  const contractedExpensesObj = {}
+  const installmentByMonthObj = {}
+  let lastContractedRent       = 0
+
+  // Month-keyed now ('YYYY-MM' => amount) instead of year-keyed — this is
+  // what lets the engine fill in only the missing months of a transition
+  // period instead of losing the whole rest of the year.
+  if (unitInfo.value.revenue_by_month) {
+    unitInfo.value.revenue_by_month.forEach(r => { contractedRevenuesObj[r.ym] = r.total_revenue })
+  }
+  if (unitInfo.value.expense_by_month) {
+    unitInfo.value.expense_by_month.forEach(r => { contractedExpensesObj[r.ym] = r.total_expense })
+  }
+  if (unitInfo.value.installment_by_month) {
+    unitInfo.value.installment_by_month.forEach(r => { installmentByMonthObj[r.ym] = r.total_due })
+  }
+  if (unitInfo.value.contracts && unitInfo.value.contracts.length) {
+    const c = unitInfo.value.contracts[0]
+    lastContractedRent = parseFloat(c.min_monthly_rent || c.monthly_rent_amount || 0)
+  }
+
+  const contractedRevenues = Object.keys(contractedRevenuesObj).length ? contractedRevenuesObj : []
+  const contractedExpenses = Object.keys(contractedExpensesObj).length ? contractedExpensesObj : []
+  const installmentByMonth = Object.keys(installmentByMonthObj).length ? installmentByMonthObj : []
+
+  return {
+    property_id:            form.value.property_id,
+    property_unit_id:       form.value.property_unit_id || null,
+    market_value:           parseFloat(form.value.market_value),
+    selling_costs_pct:      parseFloat(form.value.selling_costs_pct),
+    holding_years:          parseInt(form.value.holding_years),
+    // Anchors Year 1 to a rolling 12-month window starting this month —
+    // fixes the "evaluating in Dec still assumed a full Jan–Dec year" bug.
+    evaluation_month:       form.value.evaluation_month,
+    rent_growth_rate_pct:   parseFloat(form.value.rent_growth_rate_pct),
+    other_opex_pct:         parseFloat(form.value.other_opex_pct),
+    corporate_tax_rate_pct: parseFloat(form.value.corporate_tax_rate_pct),
+    discount_rate_pct:      parseFloat(form.value.discount_rate_pct),
+    exit_value_method:      form.value.exit_value_method,
+    appreciation_rate_pct:  parseFloat(form.value.appreciation_rate_pct || 0),
+    exit_cap_rate_pct:      parseFloat(form.value.exit_cap_rate_pct || 0),
+    contracted_revenues:    contractedRevenues,
+    contracted_expenses:    contractedExpenses,
+    installment_by_month:   installmentByMonth,
+    last_contracted_rent:   lastContractedRent,
+  }
 }
 
 // ── Chart ─────────────────────────────────────────────────
@@ -753,43 +963,14 @@ async function saveSnapshot() {
   if (!result.value) { alert('Please calculate first.'); return }
   saving.value = true
 
-  const contractedRevenuesObj = {}
-  const contractedExpensesObj = {}
-  const installmentByYearObj  = {}
-  let lastContractedRent      = 0
-
-  if (unitInfo.value.revenue_by_year)    unitInfo.value.revenue_by_year.forEach(r => { contractedRevenuesObj[r.yr] = r.total_revenue })
-  if (unitInfo.value.expense_by_year)    unitInfo.value.expense_by_year.forEach(r => { contractedExpensesObj[r.yr] = r.total_expense })
-  if (unitInfo.value.installment_by_year) unitInfo.value.installment_by_year.forEach(r => { installmentByYearObj[r.yr] = r.total_due })
-  if (unitInfo.value.contracts?.length) {
-    const c = unitInfo.value.contracts[0]
-    lastContractedRent = parseFloat(c.min_monthly_rent || c.monthly_rent_amount || 0)
+  const payload = {
+    ...buildComputePayload(),
+    snapshot_label:         form.value.snapshot_label,
+    analyst_recommendation: form.value.analyst_recommendation,
   }
 
-  const contractedRevenues = Object.keys(contractedRevenuesObj).length ? contractedRevenuesObj : []
-  const contractedExpenses = Object.keys(contractedExpensesObj).length ? contractedExpensesObj : []
-  const installmentByYear  = Object.keys(installmentByYearObj).length  ? installmentByYearObj  : []
-
   try {
-    const { data } = await axios.post(route('company.properties.keep-or-sell.store', { company: props.companyId }), {
-      ...form.value,
-      property_id:            form.value.property_id,
-      property_unit_id:       form.value.property_unit_id || null,
-      market_value:           parseFloat(form.value.market_value),
-      selling_costs_pct:      parseFloat(form.value.selling_costs_pct),
-      holding_years:          parseInt(form.value.holding_years),
-      rent_growth_rate_pct:   parseFloat(form.value.rent_growth_rate_pct),
-      other_opex_pct:         parseFloat(form.value.other_opex_pct),
-      corporate_tax_rate_pct: parseFloat(form.value.corporate_tax_rate_pct),
-      discount_rate_pct:      parseFloat(form.value.discount_rate_pct),
-      exit_value_method:      form.value.exit_value_method,
-      appreciation_rate_pct:  parseFloat(form.value.appreciation_rate_pct || 0),
-      exit_cap_rate_pct:      parseFloat(form.value.exit_cap_rate_pct || 0),
-      contracted_revenues:    contractedRevenues,
-      contracted_expenses:    contractedExpenses,
-      installment_by_year:    installmentByYear,
-      last_contracted_rent:   lastContractedRent,
-    })
+    const { data } = await axios.post(route('company.properties.keep-or-sell.store', { company: props.companyId }), payload)
     if (data.saved) {
       panel.value.open = false
       router.reload({ only: ['analyses'] })
@@ -829,6 +1010,9 @@ async function loadSnapshot(id) {
       market_value:           data.market_value,
       selling_costs_pct:      data.selling_costs_pct,
       holding_years:          data.holding_years,
+      // Old snapshots saved before this fix have no evaluation_month on
+      // file — default to the current month rather than leaving it blank.
+      evaluation_month:       data.evaluation_month ?? currentMonthYYYY(),
       rent_growth_rate_pct:   data.rent_growth_rate_pct,
       other_opex_pct:         data.other_opex_pct,
       corporate_tax_rate_pct: data.corporate_tax_rate_pct,

@@ -89,12 +89,17 @@ const emit = defineEmits(['update:modelValue'])
 
 // Same built-in terms as ExpensePaymentScheduleService — kept in sync
 // manually since the backend is the authoritative source (this is just the
-// dropdown label list, the actual day-counting happens server-side too,
+// dropdown label list, the actual date math happens server-side too,
 // mirrored here only so the date fills in immediately without a round trip).
-const TERM_DAYS = {
-  cash: 0, net_30: 30, net_45: 45, net_60: 60, net_75: 75,
-  net_90: 90, net_120: 120, net_150: 150, net_180: 180,
-}
+//
+// Fix 1 (Net 30 ≠ 30 days): standard business usage — Net 30/60/90/120/
+// 150/180 mean N calendar months later (Jan 31 + Net 30 = Feb 28, not
+// Mar 2), not literally N*30 days. Net 45 and Net 75 have no clean
+// calendar-month equivalent ("a month and a half" isn't a real unit), so
+// those two stay day-based — exactly matching dateForTerm() in
+// ExpensePaymentScheduleService.php.
+const TERM_MONTHS = { net_30: 1, net_60: 2, net_90: 3, net_120: 4, net_150: 5, net_180: 6 }
+const TERM_DAYS   = { cash: 0, net_45: 45, net_75: 75 }
 const terms = [
   { value: 'cash',    label: 'Cash (due immediately)' },
   { value: 'net_30',  label: 'Net 30' },
@@ -120,12 +125,36 @@ function onPercentageInput(row) {
   // the live object inside modelValue (v-model on the array's own items),
   // so no explicit emit is needed here.
 }
+
+// Fix 2 (timezone off-by-one): the old code did
+// `new Date(expenseDate + 'T00:00:00').toISOString()` — that constructs a
+// LOCAL midnight Date, then formats it in UTC. In any timezone ahead of
+// UTC (e.g. Egypt, UTC+2/+3), local midnight is still the previous day in
+// UTC, so the formatted date silently lost a day — a Cash (0-day) term on
+// 07/01 came out as 06/30. Fixed by staying entirely in UTC-constructed
+// dates from end to end (Date.UTC + getUTC* accessors) — never mixing a
+// locally-parsed Date with a UTC-formatted output.
+function addMonthsNoOverflow(y, m, d, months) {
+  const targetIndex = (m - 1) + months
+  const targetYear  = y + Math.floor(targetIndex / 12)
+  const targetMonth = ((targetIndex % 12) + 12) % 12 // 0-indexed
+  const lastDayOfTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate()
+  const clampedDay = Math.min(d, lastDayOfTargetMonth)
+  return `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`
+}
+function addDaysUTC(y, m, d, days) {
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  dt.setUTCDate(dt.getUTCDate() + days)
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, '0')}-${String(dt.getUTCDate()).padStart(2, '0')}`
+}
 function onTermSelected(row) {
   if (!row.payment_term || !props.expenseDate) return
-  const days = TERM_DAYS[row.payment_term] ?? 0
-  const d = new Date(props.expenseDate + 'T00:00:00')
-  d.setDate(d.getDate() + days)
-  row.forecasted_date = d.toISOString().slice(0, 10)
+  const [y, m, d] = props.expenseDate.split('-').map(Number)
+  const term = row.payment_term
+
+  row.forecasted_date = (term in TERM_MONTHS)
+    ? addMonthsNoOverflow(y, m, d, TERM_MONTHS[term])
+    : addDaysUTC(y, m, d, TERM_DAYS[term] ?? 0)
 }
 
 function rowAmount(row) {
