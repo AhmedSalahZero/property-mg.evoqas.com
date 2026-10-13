@@ -301,7 +301,9 @@ class LoanEngine
                 foreach ($pd['months'] as $mIdx => $monthCarbon) {
                     $rowNum++;
                     $isPaymentMonth  = ($mIdx === count($pd['months']) - 1);
-                    $daysInMonth     = (int) $monthCarbon->daysInMonth;
+                    // Days come from the ACCRUAL month so slices add up to the period total.
+                    $accrualCarbon   = $pd['accrual_months'][$mIdx] ?? $monthCarbon;
+                    $daysInMonth     = (int) $accrualCarbon->daysInMonth;
                     $monthRate       = $annualRate * $daysInMonth / self::DAY_COUNT_BASIS;
 
                     // Payment month slice = periodInterest - priorSlicesSum (exact, no rounding gap)
@@ -371,13 +373,18 @@ class LoanEngine
         $periods = [];
         $offset  = ($timing === 'begin') ? 0 : 1;
 
+        // Always count months from the 1st of the disbursement month.
+        // Without this, a date such as 31 Jan + 1 month overflows to 3 Mar
+        // and the schedule shows repeated / skipped months (Mar, Mar, May...).
+        $baseMonth = $disbDate->copy()->startOfMonth();
+
         for ($p = 1; $p <= $totalPeriods; $p++) {
             // ── Payment months (row date / label / display) ───────────
             $months      = [];
             $startOffset = $offset + ($p - 1) * $monthsPerPeriod;
 
             for ($m = 0; $m < $monthsPerPeriod; $m++) {
-                $month    = $disbDate->copy()->addMonths($startOffset + $m)->startOfMonth();
+                $month    = $baseMonth->copy()->addMonths($startOffset + $m);
                 $months[] = $month;
             }
 
@@ -389,9 +396,11 @@ class LoanEngine
             $accrualMonths = [];
             $totalDays = 0;
             if ($timing === 'end') {
-                $accrualStart = $startOffset - $monthsPerPeriod;
+                // Shift back ONE MONTH (not one whole period).
+                // Example: payment window Feb-Mar-Apr earns interest for Jan-Feb-Mar.
+                $accrualStart = $startOffset - 1;
                 for ($m = 0; $m < $monthsPerPeriod; $m++) {
-                    $accrualMonth    = $disbDate->copy()->addMonths($accrualStart + $m)->startOfMonth();
+                    $accrualMonth    = $baseMonth->copy()->addMonths($accrualStart + $m);
                     $accrualMonths[] = $accrualMonth;
                     $totalDays      += (int) $accrualMonth->daysInMonth;
                 }
@@ -808,7 +817,10 @@ class LoanEngine
             foreach ($pd['months'] as $mIdx => $monthCarbon) {
                 $rowNum++;
                 $isPaymentMonth  = ($mIdx === count($pd['months']) - 1);
-                $daysInMonth     = (int) $monthCarbon->daysInMonth;
+                // Days come from the ACCRUAL month (the month whose interest is
+                // being earned), so the slices add up exactly to the period total.
+                $accrualCarbon   = $pd['accrual_months'][$mIdx] ?? $monthCarbon;
+                $daysInMonth     = (int) $accrualCarbon->daysInMonth;
                 $monthRate       = $annualRate * $daysInMonth / self::DAY_COUNT_BASIS;
 
                 // On payment month: slice = periodInterest - sum_of_prior_slices
